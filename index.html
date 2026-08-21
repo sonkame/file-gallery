@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>File Gallery</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">File<span>Gallery</span></div>
+  <div class="status" id="status"></div>
+  <button class="btn small" id="backup-btn" title="Backup and restore your data">
+    Backup<span class="dot hidden" id="backup-dot" aria-hidden="true"></span>
+  </button>
+</header>
+
+<main class="wrap">
+  <div class="toolbar">
+    <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+    <div class="toolbar-actions">
+      <button class="btn" id="new-folder-btn">＋ New folder</button>
+      <button class="btn" id="add-images-btn">＋ Add images</button>
+      <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+    </div>
+  </div>
+
+  <p class="empty hidden" id="empty"></p>
+  <div class="grid" id="grid"></div>
+  <div class="droppane" id="droppane">Drop images here</div>
+</main>
+
+<!-- EDIT MODAL -->
+<div class="modal" id="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+  <div class="modal-card">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h3 id="edit-title">Edit</h3>
+    <form id="edit-form" autocomplete="off">
+      <img id="edit-preview" class="edit-preview hidden" alt="">
+      <input id="edit-name" type="text" placeholder="Title" aria-label="Title" maxlength="120">
+      <input id="edit-url" type="text" placeholder="https://example.com (optional)" aria-label="Link">
+      <p class="err hidden" id="edit-err"></p>
+      <button type="submit" class="btn cta">Save</button>
+    </form>
+  </div>
+</div>
+
+<!-- BACKUP MODAL -->
+<div class="modal" id="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title">
+  <div class="modal-card">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h3 id="backup-title">Backup &amp; Restore</h3>
+    <p class="lede">Everything lives in this browser only. Clearing site data, switching
+      machines or losing this disk wipes it. A backup file saved on your computer is what survives.</p>
+
+    <p class="bk-status" id="bk-status"></p>
+
+    <button class="btn cta" id="bk-export">⤓ Download backup</button>
+    <p class="bk-note" id="bk-note"></p>
+
+    <hr>
+
+    <label for="bk-file" class="filelabel">Restore from a backup file…</label>
+    <input type="file" id="bk-file" accept=".json,.zip,application/json,application/zip" class="hidden">
+    <p class="warn">Restoring replaces everything currently in this browser.</p>
+
+    <p class="msg hidden" id="bk-msg"></p>
+    <p class="bk-tip">☁️ Keep the file in a Drive or iCloud folder and it syncs off this machine.</p>
+  </div>
+</div>
+
+<!-- CARD MENU -->
+<div class="menu hidden" id="card-menu">
+  <button data-act="open">Open</button>
+  <button data-act="edit">Edit</button>
+  <button data-act="delete" class="danger">Delete</button>
+</div>
+
+<script src="js/tree.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/images.js"></script>
+<script src="js/db.js"></script>
+<script src="js/backup.js"></script>
+<script src="js/dnd.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

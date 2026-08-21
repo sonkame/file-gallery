@@ -1,0 +1,250 @@
+/* Theme tokens match CryptoFolio so the two feel like sibling apps. */
+:root {
+  --bg-1: #0b0e16;
+  --bg-2: #11151f;
+  --bg-3: #171c29;
+  --border: #232a3b;
+  --text: #e6e9f0;
+  --muted: #8b93a7;
+  --accent: #4f8cff;
+  --danger: #ff5c5c;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-1);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden { display: none !important; }
+
+/* ----- top bar ----- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.brand { font-size: 18px; font-weight: 700; letter-spacing: -0.2px; }
+.brand span { color: var(--accent); }
+.status { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* ----- buttons ----- */
+
+.btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.btn:hover { border-color: var(--accent); background: var(--bg-3); }
+.btn.small { padding: 6px 12px; font-size: 13px; position: relative; }
+.btn.cta { background: var(--accent); border-color: var(--accent); color: #061223; width: 100%; }
+.btn.cta:hover { filter: brightness(1.08); background: var(--accent); }
+.btn:disabled { opacity: .55; cursor: default; }
+
+/* Nudge dot: data exists that hasn't been written to disk since it changed. */
+.dot {
+  position: absolute; top: -3px; right: -3px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-2);
+}
+
+/* ----- layout ----- */
+
+.wrap { max-width: 1400px; margin: 0 auto; padding: 22px; }
+
+.toolbar {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; margin-bottom: 18px;
+}
+.toolbar-actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* ----- breadcrumbs ----- */
+
+.crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 34px; }
+.crumb {
+  background: none; border: 1px solid transparent; color: var(--muted);
+  font: inherit; font-weight: 600; cursor: pointer;
+  padding: 5px 10px; border-radius: 7px;
+}
+.crumb:hover { color: var(--text); background: var(--bg-3); }
+.crumb.current { color: var(--text); cursor: default; }
+.crumb.current:hover { background: none; }
+.crumb.drop-into { border-color: var(--accent); background: var(--bg-3); color: var(--text); }
+.crumb-sep { color: var(--muted); opacity: .6; }
+
+/* ----- grid ----- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  position: relative;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, transform .12s;
+}
+.card:hover { border-color: #35405c; }
+.card.dragging { opacity: .4; }
+
+/* Drop affordances. A rejected target renders nothing at all — the rule is
+   felt as absence of feedback rather than reported after the drop. */
+.card.drop-into { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.card.drop-before::before,
+.card.drop-after::before {
+  content: ""; position: absolute; top: 6px; bottom: 6px; width: 3px;
+  background: var(--accent); border-radius: 2px; z-index: 3;
+}
+.card.drop-before::before { left: -9px; }
+.card.drop-after::before { right: -9px; }
+
+.thumb-wrap {
+  position: relative; aspect-ratio: 4 / 3;
+  background: var(--bg-3); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.thumb-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.folder-icon { font-size: 46px; line-height: 1; opacity: .85; }
+.card.folder .thumb-wrap { background: linear-gradient(160deg, var(--bg-3), #1d2333); }
+.folder-count {
+  position: absolute; bottom: 8px; right: 10px;
+  font-size: 11px; color: var(--muted);
+  background: rgba(11,14,22,.75); padding: 2px 7px; border-radius: 20px;
+}
+
+.card-body { padding: 9px 11px; border-top: 1px solid var(--border); }
+.card-title {
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-sub {
+  font-size: 11px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.card-menu-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 6px;
+  background: rgba(11,14,22,.8); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; font-size: 14px; line-height: 1;
+  opacity: 0; transition: opacity .15s;
+}
+.card:hover .card-menu-btn, .card-menu-btn:focus { opacity: 1; }
+
+/* ----- drop pane / empty ----- */
+
+.empty { color: var(--muted); text-align: center; padding: 40px 20px; }
+.empty small { display: block; margin-top: 6px; opacity: .8; }
+
+.droppane {
+  margin-top: 18px; padding: 26px;
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  text-align: center; color: var(--muted); font-weight: 600;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.droppane.hot { border-color: var(--accent); color: var(--text); background: var(--bg-2); }
+
+body.filedrag .droppane { border-color: var(--accent); }
+
+/* ----- modals ----- */
+
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(4,6,12,.72);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal.open { display: flex; }
+.modal-card {
+  position: relative;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px;
+  width: min(460px, 100%); max-height: 90vh; overflow-y: auto;
+}
+.modal-card h3 { margin: 0 0 14px; font-size: 19px; }
+.modal-x {
+  position: absolute; top: 12px; right: 12px;
+  background: none; border: none; color: var(--muted);
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.modal-x:hover { color: var(--text); }
+
+.modal input[type="text"] {
+  width: 100%; margin-bottom: 10px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font: inherit;
+}
+.modal input[type="text"]:focus { outline: none; border-color: var(--accent); }
+
+.edit-preview {
+  width: 100%; max-height: 240px; object-fit: contain;
+  background: var(--bg-3); border-radius: 8px; margin-bottom: 12px;
+}
+
+.lede { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.bk-status { font-size: 13px; margin: 0 0 12px; }
+.bk-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; min-height: 18px; }
+.bk-tip { font-size: 12px; color: var(--muted); margin: 14px 0 0; }
+.warn { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.err { color: var(--danger); font-size: 13px; margin: 0 0 10px; }
+.msg { font-size: 13px; margin: 12px 0 0; }
+.msg.ok { color: #4ade80; }
+.msg.err { color: var(--danger); }
+
+hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+.filelabel {
+  display: block; text-align: center; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: 8px;
+  padding: 14px; color: var(--muted); font-weight: 600;
+}
+.filelabel:hover { border-color: var(--accent); color: var(--text); }
+
+/* ----- card menu ----- */
+
+.menu {
+  position: fixed; z-index: 120;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 9px; padding: 5px; min-width: 140px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.5);
+}
+.menu button {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text);
+  font: inherit; padding: 8px 12px; border-radius: 6px; cursor: pointer;
+}
+.menu button:hover { background: var(--bg-3); }
+.menu button.danger { color: var(--danger); }
+
+@media (max-width: 600px) {
+  .wrap { padding: 14px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .toolbar-actions { margin-left: 0; width: 100%; }
+  .toolbar-actions .btn { flex: 1; }
+}

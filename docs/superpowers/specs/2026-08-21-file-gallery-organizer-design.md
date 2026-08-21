@@ -215,14 +215,20 @@ Empty states name the next action rather than merely reporting emptiness.
 ```
 index.html      markup and view shells
 styles.css      dark theme
-js/db.js        IndexedDB open, migrations, CRUD
 js/tree.js      ordering, move validation, cycle guard
 js/zip.js       store-only zip write and read
+js/images.js    thumbnail generation, blob/data-URL conversion
+js/db.js        IndexedDB open, migrations, CRUD
 js/backup.js    export, format selection, import, validation
 js/dnd.js       drag and drop wiring
 js/ui.js        rendering, modals, object URL lifecycle
 tests.html      in-browser test runner
 ```
+
+`images.js` was not in the original plan. Thumbnail generation turned out to
+be needed by both the add path and the restore path — restore regenerates
+thumbnails rather than reading them from the backup — so leaving it inside
+`ui.js` would have made `backup.js` depend on the rendering layer.
 
 Classic `<script src>` tags, not ES modules. ES modules are blocked by CORS over
 `file://`, and this site must work when `index.html` is opened directly from

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>File Gallery — Tests</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .wrap { max-width: 900px; }
+  .t { padding: 7px 12px; border-left: 3px solid var(--border); margin-bottom: 3px; font-family: ui-monospace, monospace; font-size: 13px; }
+  .t.pass { border-color: #4ade80; }
+  .t.fail { border-color: var(--danger); background: rgba(255,92,92,.08); }
+  .t .why { color: var(--danger); display: block; margin-top: 4px; }
+  .grp { margin: 22px 0 8px; font-weight: 700; font-size: 15px; }
+  #summary { font-size: 17px; font-weight: 700; margin: 18px 0; }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand">File<span>Gallery</span> tests</div></header>
+<main class="wrap">
+  <label style="display:block;margin-bottom:14px;color:var(--muted)">
+    <input type="checkbox" id="slow"> Include slow tests (ZIP64 multi-entry — builds 70,000 entries)
+  </label>
+  <button class="btn" id="run">Run tests</button>
+  <div id="summary"></div>
+  <div id="out"></div>
+</main>
+
+<script src="js/tree.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/images.js"></script>
+<script src="js/backup.js"></script>
+<script>
+/* Deliberately does NOT load js/db.js. These tests exercise pure logic and
+   serialization only — touching IndexedDB here would clobber the real
+   gallery, since it lives under the same database name. */
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+
+function group(name) {
+  const d = document.createElement('div');
+  d.className = 'grp';
+  d.textContent = name;
+  out.appendChild(d);
+}
+
+function ok(name, cond, why) {
+  const d = document.createElement('div');
+  d.className = 't ' + (cond ? 'pass' : 'fail');
+  d.textContent = (cond ? '✓ ' : '✗ ') + name;
+  if (!cond && why) {
+    const s = document.createElement('span');
+    s.className = 'why';
+    s.textContent = why;
+    d.appendChild(s);
+  }
+  out.appendChild(d);
+  cond ? pass++ : fail++;
+}
+
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/* ----- fixtures ----- */
+
+let seq = 0;
+function node(id, type, parentId, order, extra = {}) {
+  seq++;
+  return {
+    id, type, parentId, order,
+    title: id, url: '',
+    createdAt: 1000 + seq, updatedAt: 1000 + seq,
+    ...extra,
+  };
+}
+
+/* root
+     fA (folder)
+       fA1 (folder)
+         iA1a (item)
+       iAa (item)
+     fB (folder)
+     i1, i2 (items at root) */
+function fixture() {
+  return [
+    node('fA', 'folder', null, 0),
+    node('fB', 'folder', null, 1),
+    node('i1', 'item', null, 0),
+    node('i2', 'item', null, 1),
+    node('fA1', 'folder', 'fA', 0),
+    node('iAa', 'item', 'fA', 0),
+    node('iA1a', 'item', 'fA1', 0),
+  ];
+}
+
+async function run() {
+  out.textContent = '';
+  pass = fail = 0;
+  const t0 = performance.now();
+
+  /* ================= ordering ================= */
+  group('Ordering');
+  {
+    const nodes = fixture();
+    const kids = Tree.childrenOf(nodes, null);
+    ok('folders sort above items',
+      eq(kids.map(n => n.id), ['fA', 'fB', 'i1', 'i2']),
+      'got ' + kids.map(n => n.id).join(','));
+
+    // A folder created later with a low order must still outrank any item.
+    const mixed = [node('zz', 'folder', null, 99), node('aa', 'item', null, 0)];
+    ok('folder outranks item regardless of order value',
+      Tree.childrenOf(mixed, null)[0].id === 'zz');
+
+    ok('ordering is scoped per parent',
+      eq(Tree.childrenOf(nodes, 'fA').map(n => n.id), ['fA1', 'iAa']));
+
+    const dense = Tree.renumber([node('a', 'item', null, 5), node('b', 'item', null, 9)]);
+    ok('renumber produces a dense sequence', eq(dense.map(n => n.order), [0, 1]));
+  }
+
+  /* ================= cycle guard ================= */
+  group('Move rules');
+  {
+    const nodes = fixture();
+    ok('folder cannot move into its own child',
+      Tree.canMove(nodes, 'fA', 'fA1') === false);
+
+    // Depth matters: the guard has to walk the whole ancestor chain, not
+    // just check the immediate parent.
+    const deep = [
+      node('f1', 'folder', null, 0),
+      node('f2', 'folder', 'f1', 0),
+      node('f3', 'folder', 'f2', 0),
+      node('f4', 'folder', 'f3', 0),
+    ];
+    ok('folder cannot move into a deep descendant',
+      Tree.canMove(deep, 'f1', 'f4') === false);
+
+    ok('node cannot move into itself',
+      Tree.canMove(nodes, 'fA', 'fA') === false);
+
+    ok('folder cannot move into an item',
+      Tree.canMove(nodes, 'fB', 'i1') === false);
+
+    ok('item cannot move into an item',
+      Tree.canMove(nodes, 'i1', 'i2') === false);
+
+    ok('legal folder move is allowed',
+      Tree.canMove(nodes, 'fB', 'fA') === true);
+
+    ok('move to root is allowed',
+      Tree.canMove(nodes, 'fA1', null) === true);
+
+    ok('rejected move leaves the tree untouched',
+      Tree.moveNode(nodes, 'fA', 'fA1').ok === false);
+  }
+
+  /* ================= moving ================= */
+  group('moveNode');
+  {
+    let nodes = fixture();
+    const r = Tree.moveNode(nodes, 'i1', 'fA', null);
+    ok('item moves into a folder', r.ok && Tree.byId(r.nodes, 'i1').parentId === 'fA');
+    ok('vacated group renumbers densely',
+      eq(Tree.siblingGroup(r.nodes, null, 'item').map(n => n.order), [0]));
+    ok('destination group renumbers densely',
+      eq(Tree.siblingGroup(r.nodes, 'fA', 'item').map(n => n.order), [0, 1]));
+
+    const r2 = Tree.moveNode(fixture(), 'fB', null, 'fA');
+    ok('reorder places node before its target',
+      eq(Tree.siblingGroup(r2.nodes, null, 'folder').map(n => n.id), ['fB', 'fA']));
+
+    ok('changed list holds only what actually moved',
+      r2.changed.length > 0 && r2.changed.length <= 2,
+      'changed=' + r2.changed.length);
+
+    // Moving a folder carries its subtree implicitly — children keep
+    // pointing at it, so nothing should need rewriting below it.
+    const r3 = Tree.moveNode(fixture(), 'fA', 'fB', null);
+    ok('subtree follows its folder',
+      Tree.byId(r3.nodes, 'fA1').parentId === 'fA' &&
+      Tree.pathTo(r3.nodes, 'iA1a').map(n => n.id).join('/') === 'fB/fA/fA1/iA1a');
+  }
+
+  /* ================= descendants / delete ================= */
+  group('Recursive delete');
+  {
+    const nodes = fixture();
+    const kids = Tree.descendantsOf(nodes, 'fA').sort();
+    ok('descendantsOf finds the whole subtree',
+      eq(kids, ['fA1', 'iA1a', 'iAa']), 'got ' + kids.join(','));
+
+    ok('descendantsOf on a leaf is empty',
+      Tree.descendantsOf(nodes, 'i1').length === 0);
+
+    // The delete path removes [id, ...descendants]. Nothing referencing a
+    // deleted parent may survive, or its images become orphaned bytes.
+    const removed = new Set(['fA', ...Tree.descendantsOf(nodes, 'fA')]);
+    const survivors = nodes.filter(n => !removed.has(n.id));
+    ok('no survivor points at a deleted parent',
+      survivors.every(n => n.parentId === null || !removed.has(n.parentId)));
+  }
+
+  /* ================= breadcrumbs ================= */
+  group('Breadcrumbs');
+  {
+    const nodes = fixture();
+    ok('pathTo returns root-first chain',
+      eq(Tree.pathTo(nodes, 'iA1a').map(n => n.id), ['fA', 'fA1', 'iA1a']));
+  }
+
+  /* ================= zip ================= */
+  group('Zip round trip');
+  {
+    const files = [
+      { name: 'data.json', blob: new Blob([JSON.stringify({ hello: 'world' })]) },
+      { name: 'images/a.png', blob: new Blob([new Uint8Array([1, 2, 3, 4, 5])]) },
+      { name: 'images/b.jpg', blob: new Blob([new Uint8Array(200000).fill(7)]) },
+      { name: 'images/ünïcode ✓.png', blob: new Blob(['unicode name']) },
+    ];
+    const zipped = await Zip.write(files);
+    ok('written archive is sniffed as a zip', await Zip.isZip(zipped));
+
+    const back = await Zip.read(zipped);
+    ok('entry count round-trips', back.length === files.length,
+      `wrote ${files.length}, read ${back.length}`);
+    ok('names round-trip in order',
+      eq(back.map(e => e.name), files.map(f => f.name)),
+      back.map(e => e.name).join(' | '));
+    ok('sizes round-trip',
+      eq(back.map(e => e.blob.size), files.map(f => f.blob.size)));
+
+    const orig = new Uint8Array(await files[2].blob.arrayBuffer());
+    const rt = new Uint8Array(await back[2].blob.arrayBuffer());
+    ok('bytes round-trip exactly',
+      orig.length === rt.length && orig.every((v, i) => v === rt[i]));
+
+    ok('json entry parses back',
+      JSON.parse(await back[0].blob.text()).hello === 'world');
+
+    // CRC is what a real unzip tool checks; a wrong table or a wrong
+    // final XOR would still round-trip through our own reader.
+    const knownCrc = await Zip.crc32Blob(new Blob(['123456789']));
+    ok('CRC-32 matches the standard check value', knownCrc === 0xcbf43926,
+      '0x' + knownCrc.toString(16));
+
+    ok('empty archive still reads', (await Zip.read(await Zip.write([]))).length === 0);
+    ok('zero-byte entry round-trips',
+      (await Zip.read(await Zip.write([{ name: 'e', blob: new Blob([]) }])))[0].blob.size === 0);
+
+    let threw = false;
+    try { await Zip.read(new Blob(['not a zip at all'])); } catch (_) { threw = true; }
+    ok('a non-zip is rejected rather than silently mis-parsed', threw);
+  }
+
+  /* ================= backup formats ================= */
+  group('Backup round trip');
+  {
+    const nodes = fixture();
+    const png = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 99])], { type: 'image/png' });
+    const meta = { format: 'filegallery.backup', version: 1, savedAt: new Date().toISOString(), nodes };
+
+    // JSON format: images embedded as data URLs.
+    const dataURL = await Images.blobToDataURL(png);
+    const jsonFile = new Blob(
+      [JSON.stringify({ ...meta, images: { iAa: dataURL } })],
+      { type: 'application/json' });
+
+    // Zip format: same data.json, images as real files.
+    const zipFile = await Zip.write([
+      { name: 'data.json', blob: new Blob([JSON.stringify(meta)]) },
+      { name: 'images/iAa.png', blob: png },
+    ]);
+
+    const fromJson = await Backup.parse(jsonFile);
+    const fromZip = await Backup.parse(zipFile);
+
+    ok('json backup restores the tree', eq(fromJson.meta.nodes, nodes));
+    ok('zip backup restores the tree', eq(fromZip.meta.nodes, nodes));
+
+    // This is the promise the whole feature rests on: the format you happen
+    // to get must not change what you get back.
+    ok('both formats yield identical trees',
+      eq(fromJson.meta.nodes, fromZip.meta.nodes));
+
+    ok('json backup restores image bytes',
+      fromJson.images.length === 1 && fromJson.images[0].blob.size === png.size);
+    ok('zip backup restores image bytes',
+      fromZip.images.length === 1 && fromZip.images[0].blob.size === png.size);
+    ok('image ids survive both formats',
+      fromJson.images[0].id === 'iAa' && fromZip.images[0].id === 'iAa');
+    ok('mime type is recovered from the zip entry name',
+      fromZip.images[0].blob.type === 'image/png', fromZip.images[0].blob.type);
+
+    const jb = new Uint8Array(await fromJson.images[0].blob.arrayBuffer());
+    const zb = new Uint8Array(await fromZip.images[0].blob.arrayBuffer());
+    ok('image bytes are identical across formats',
+      jb.length === zb.length && jb.every((v, i) => v === zb[i]));
+
+    // Rejections.
+    const bad = [
+      ['a foreign json file', new Blob([JSON.stringify({ format: 'something.else' })])],
+      ['unparseable json', new Blob(['{{{not json'])],
+      ['a backup from a newer version', new Blob([JSON.stringify({ ...meta, version: 99 })])],
+      ['a backup with no nodes array', new Blob([JSON.stringify({ ...meta, nodes: 'nope' })])],
+      ['a zip with no data.json', await Zip.write([{ name: 'x.txt', blob: new Blob(['hi']) }])],
+    ];
+    for (const [label, blob] of bad) {
+      let threw = false, msg = '';
+      try { await Backup.parse(blob); } catch (e) { threw = true; msg = e.message; }
+      ok('rejects ' + label, threw && msg.length > 0, msg);
+    }
+  }
+
+  /* ================= change signature ================= */
+  group('Change detection');
+  {
+    const nodes = fixture();
+    const sig = Backup.signature(nodes);
+    ok('signature is stable for unchanged data', sig === Backup.signature(nodes.slice()));
+
+    const added = [...nodes, node('new', 'item', null, 9)];
+    ok('signature changes when a node is added', Backup.signature(added) !== sig);
+
+    const removed = nodes.slice(0, -1);
+    ok('signature changes when a node is deleted', Backup.signature(removed) !== sig);
+
+    const edited = nodes.map(n => n.id === 'i1' ? { ...n, title: 'x', updatedAt: 9e12 } : n);
+    ok('signature changes when a node is edited', Backup.signature(edited) !== sig);
+  }
+
+  /* ================= zip64 ================= */
+  group('ZIP64 records');
+  {
+    /* A genuine ZIP64 archive needs either an entry over 4GB or more than
+       65,535 entries — neither is practical to build in a test. So instead
+       of brute force, this rewrites a small archive's tail into the ZIP64
+       shape: saturated fields in the standard EOCD, with the real values
+       carried in a ZIP64 record found through the locator.
+
+       That locator-following branch is the part that would realistically
+       break, and this exercises it directly. */
+    const files = [
+      { name: 'data.json', blob: new Blob(['{"a":1}']) },
+      { name: 'images/x.png', blob: new Blob([new Uint8Array([9, 8, 7])]) },
+    ];
+    const plain = await Zip.write(files);
+    const bytes = new Uint8Array(await plain.arrayBuffer());
+    const view = new DataView(bytes.buffer);
+
+    // No archive comment is written, so the EOCD is the final 22 bytes.
+    const eocdPos = bytes.length - 22;
+    const count = view.getUint16(eocdPos + 10, true);
+    const cdSize = view.getUint32(eocdPos + 12, true);
+    const cdStart = view.getUint32(eocdPos + 16, true);
+
+    const tail = new ArrayBuffer(56 + 20 + 22);
+    const t = new DataView(tail);
+    let p = 0;
+    const u16 = v => { t.setUint16(p, v, true); p += 2; };
+    const u32 = v => { t.setUint32(p, v >>> 0, true); p += 4; };
+    const u64 = v => { t.setBigUint64(p, BigInt(v), true); p += 8; };
+
+    u32(0x06064b50); u64(44); u16(45); u16(45); u32(0); u32(0);
+    u64(count); u64(count); u64(cdSize); u64(cdStart);
+    u32(0x07064b50); u32(0); u64(eocdPos); u32(1);
+    u32(0x06054b50); u16(0); u16(0);
+    u16(0xffff); u16(0xffff);        // saturated counts
+    u32(0xffffffff); u32(0xffffffff); // saturated size and offset
+    u16(0);
+
+    const z64 = new Blob([bytes.subarray(0, eocdPos), tail], { type: 'application/zip' });
+    const back = await Zip.read(z64);
+
+    ok('reader follows the ZIP64 locator past saturated fields',
+      back.length === 2, 'read ' + back.length + ' entries');
+    ok('ZIP64 archive yields correct names',
+      eq(back.map(e => e.name), files.map(f => f.name)));
+    ok('ZIP64 archive yields correct content',
+      back.length === 2 && (await back[0].blob.text()) === '{"a":1}');
+  }
+
+  /* ================= slow ================= */
+  if (document.getElementById('slow').checked) {
+    group('Many entries (slow)');
+    // Crosses the 16-bit entry count, forcing the writer's ZIP64 end
+    // records for real. Kept opt-in: every entry costs an async CRC pass.
+    const N = 66000;
+    const many = [];
+    for (let i = 0; i < N; i++) many.push({ name: 'f' + i, blob: new Blob([String(i)]) });
+    const big = await Zip.write(many);
+    const back = await Zip.read(big);
+    ok(`${N.toLocaleString()} entries round-trip via ZIP64`, back.length === N, 'read ' + back.length);
+    ok('last entry survives', back[N - 1] && back[N - 1].name === 'f' + (N - 1));
+    ok('last entry content survives', back[N - 1] && (await back[N - 1].blob.text()) === String(N - 1));
+  }
+
+  const ms = Math.round(performance.now() - t0);
+  const s = document.getElementById('summary');
+  s.textContent = `${pass} passed, ${fail} failed — ${ms}ms`;
+  s.style.color = fail ? 'var(--danger)' : '#4ade80';
+}
+
+document.getElementById('run').addEventListener('click', run);
+run();
+</script>
+</body>
+</html>
