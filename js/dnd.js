@@ -37,11 +37,13 @@ const DnD = (() => {
       return { kind: before ? 'before' : 'after', id: target.id };
     }
 
-    // Dragging a folder.
+    // Dragging a folder. The "into" zone takes most of the card so nesting
+    // doesn't take repeated attempts to land; only thin edge strips are
+    // left for reordering past a sibling folder instead.
     if (!targetIsFolder) return null;
     const rel = (x - rect.left) / rect.width;
-    if (rel > 0.28 && rel < 0.72) return { kind: 'into', id: target.id };
-    return { kind: rel <= 0.28 ? 'before' : 'after', id: target.id };
+    if (rel > 0.12 && rel < 0.88) return { kind: 'into', id: target.id };
+    return { kind: rel <= 0.12 ? 'before' : 'after', id: target.id };
   }
 
   /* Turns an intent into the (parentId, beforeId) pair moveNode expects,
@@ -142,36 +144,17 @@ const DnD = (() => {
   const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
 
   function initFileDrop() {
-    let depth = 0;
-    const pane = document.getElementById('droppane');
-
-    document.addEventListener('dragenter', e => {
-      if (!hasFiles(e)) return;
-      depth++;
-      document.body.classList.add('filedrag');
-    });
-
-    document.addEventListener('dragleave', e => {
-      if (!hasFiles(e)) return;
-      // dragleave fires for every child element, so only a balanced count
-      // means the pointer actually left the window.
-      depth = Math.max(0, depth - 1);
-      if (depth === 0) document.body.classList.remove('filedrag');
-    });
-
+    // Dropping is still accepted anywhere on the page — dragover must call
+    // preventDefault or the browser refuses the drop outright.
     document.addEventListener('dragover', e => {
       if (!hasFiles(e)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
-      pane.classList.toggle('hot', pane.contains(e.target) || e.target === pane);
     });
 
     document.addEventListener('drop', e => {
       if (!hasFiles(e)) return;
       e.preventDefault();
-      depth = 0;
-      document.body.classList.remove('filedrag');
-      pane.classList.remove('hot');
       const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
       if (files.length) ctx.addFiles(files);
     });

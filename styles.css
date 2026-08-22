@@ -1,6 +1,6 @@
 /* Theme tokens match CryptoFolio so the two feel like sibling apps. */
 :root {
-  --bg-1: #0b0e16;
+  --bg-1: #000;
   --bg-2: #11151f;
   --bg-3: #171c29;
   --border: #232a3b;
@@ -106,10 +106,15 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
   cursor: pointer;
-  transition: border-color .15s, transform .12s;
+  transition: border-color .15s, transform .26s cubic-bezier(.2, .8, .2, 1), opacity .2s ease;
 }
 .card:hover { border-color: #35405c; }
 .card.dragging { opacity: .4; }
+
+/* Starting state for a card that just appeared — new upload, or an item
+   that moved into the folder currently open. Removed a frame after
+   insertion so the transition above animates it in. */
+.card.card-enter { opacity: 0; transform: scale(.92); }
 
 /* Drop affordances. A rejected target renders nothing at all — the rule is
    felt as absence of feedback rather than reported after the drop. */
@@ -156,20 +161,34 @@ body {
 }
 .card:hover .card-menu-btn, .card-menu-btn:focus { opacity: 1; }
 
-/* ----- drop pane / empty ----- */
+.note-btn {
+  position: absolute; top: 6px; left: 6px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 6px;
+  background: rgba(11,14,22,.8); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .15s, border-color .15s;
+}
+.card:hover .note-btn, .note-btn:focus { opacity: 1; }
+.note-btn img { width: 19px; height: 19px; object-fit: contain; pointer-events: none; }
+/* A card that already has a note keeps the button visible without
+   hovering, so a note you left yourself is something you notice while
+   scanning the grid, not something you have to go looking for. */
+.note-btn.has-note { opacity: 1; border-color: var(--accent); }
+
+.note-textarea {
+  width: 100%; min-height: 140px; resize: vertical;
+  margin-bottom: 14px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font: inherit; line-height: 1.5;
+}
+.note-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* ----- empty state ----- */
 
 .empty { color: var(--muted); text-align: center; padding: 40px 20px; }
 .empty small { display: block; margin-top: 6px; opacity: .8; }
-
-.droppane {
-  margin-top: 18px; padding: 26px;
-  border: 1px dashed var(--border); border-radius: var(--radius);
-  text-align: center; color: var(--muted); font-weight: 600;
-  transition: border-color .15s, color .15s, background .15s;
-}
-.droppane.hot { border-color: var(--accent); color: var(--text); background: var(--bg-2); }
-
-body.filedrag .droppane { border-color: var(--accent); }
 
 /* ----- modals ----- */
 
@@ -226,6 +245,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
 }
 .filelabel:hover { border-color: var(--accent); color: var(--text); }
 
+/* ----- confirm / prompt dialog -----
+   Replaces window.confirm/prompt. Those are synchronous and block the
+   main thread, which can freeze a stale frame — a menu that had just been
+   told to hide could still be visibly painted behind the native dialog.
+   This one is a normal async modal, so the page always repaints first. */
+
+.dialog-card { width: min(400px, 100%); }
+.dialog-msg { color: var(--muted); font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.dialog-actions .btn { min-width: 84px; }
+.btn.cta.danger-cta { background: var(--danger); border-color: var(--danger); color: #2a0a0a; }
+.btn.cta.danger-cta:hover { background: var(--danger); filter: brightness(1.08); }
+
 /* ----- card menu ----- */
 
 .menu {
@@ -241,6 +273,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
 }
 .menu button:hover { background: var(--bg-3); }
 .menu button.danger { color: var(--danger); }
+
+/* ----- note hover preview ----- */
+
+.note-preview {
+  position: fixed; z-index: 130;
+  max-width: 260px; max-height: 200px; overflow-y: auto;
+  background: var(--bg-2); border: 1px solid var(--accent);
+  border-radius: 9px; padding: 10px 12px;
+  font-size: 12px; line-height: 1.5; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  box-shadow: 0 12px 34px rgba(0,0,0,.5);
+  cursor: text;
+}
 
 @media (max-width: 600px) {
   .wrap { padding: 14px; }

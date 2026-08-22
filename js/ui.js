@@ -6,12 +6,108 @@
    of the tab, which at hundreds of megabytes of images is fatal rather
    than untidy. */
 
+/* A click event's target is decided by where the mouse button is released,
+   not where it was pressed. Selecting text in a field and dragging past the
+   edge of the modal card before releasing lands the mouseup on the backdrop
+   — a plain 'click' listener there would read that as "click outside" and
+   close the modal mid-selection. Requiring press AND release to both land
+   on the backdrop itself fixes that without losing real outside-clicks. */
+function onBackdropClick(modal, close) {
+  let downOnBackdrop = false;
+  modal.addEventListener('mousedown', e => { downOnBackdrop = e.target === modal; });
+  modal.addEventListener('mouseup', e => {
+    if (downOnBackdrop && e.target === modal) close();
+    downOnBackdrop = false;
+  });
+}
+
+/* Replaces window.confirm/prompt with an async modal that matches the
+   theme. Native confirm/prompt block the main thread synchronously, which
+   can paint a stale frame behind them — a menu already told to hide could
+   still show through. Being a normal async modal avoids that entirely. */
+const Dialog = (() => {
+  const $ = id => document.getElementById(id);
+  let pending = null; // { resolve, withInput }
+
+  function hide() {
+    $('dialog-modal').classList.remove('open');
+  }
+
+  function finish(result) {
+    if (!pending) return;
+    const { resolve } = pending;
+    pending = null;
+    hide();
+    resolve(result);
+  }
+
+  function show({ title, message = '', okLabel = 'OK', cancelLabel = 'Cancel', danger = false, withInput = false, placeholder = '', initialValue = '' }) {
+    return new Promise(resolve => {
+      pending = { resolve, withInput };
+
+      $('dialog-title').textContent = title;
+      const msgEl = $('dialog-msg');
+      msgEl.textContent = message;
+      msgEl.classList.toggle('hidden', !message);
+      $('dialog-err').classList.add('hidden');
+
+      const input = $('dialog-input');
+      input.classList.toggle('hidden', !withInput);
+      input.value = initialValue;
+      input.placeholder = placeholder;
+
+      const ok = $('dialog-ok');
+      ok.textContent = okLabel;
+      ok.classList.toggle('danger-cta', danger);
+      $('dialog-cancel').textContent = cancelLabel;
+
+      $('dialog-modal').classList.add('open');
+      (withInput ? input : ok).focus();
+      if (withInput) input.select();
+    });
+  }
+
+  function submit() {
+    if (!pending) return;
+    if (pending.withInput) {
+      const val = $('dialog-input').value.trim();
+      if (!val) {
+        const err = $('dialog-err');
+        err.textContent = 'Give it a name.';
+        err.classList.remove('hidden');
+        return;
+      }
+      finish(val);
+    } else {
+      finish(true);
+    }
+  }
+
+  function cancel() {
+    if (!pending) return;
+    finish(pending.withInput ? null : false);
+  }
+
+  const confirm = opts => show({ ...opts, withInput: false });
+  const prompt = opts => show({ ...opts, withInput: true });
+
+  function init() {
+    $('dialog-form').addEventListener('submit', e => { e.preventDefault(); submit(); });
+    $('dialog-cancel').addEventListener('click', cancel);
+    onBackdropClick($('dialog-modal'), cancel);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && pending) cancel(); });
+  }
+
+  return { confirm, prompt, init };
+})();
+
 const UI = (() => {
   const state = {
     nodes: [],
     currentId: null,
     urls: [],       // object URLs owned by the current render
     editingId: null,
+    noteId: null,
   };
 
   const $ = id => document.getElementById(id);
@@ -98,6 +194,11 @@ const UI = (() => {
       const img = document.createElement('img');
       img.alt = node.title || '';
       img.loading = 'lazy';
+      // <img> is draggable by default, which steals the drag before it
+      // bubbles to the card — that's what made only the title bar
+      // draggable. Turning it off lets the card's own drag handler run
+      // no matter where on the thumbnail the drag starts.
+      img.draggable = false;
       wrap.appendChild(img);
       // Thumbnails load per card so a large folder paints immediately.
       DB.getThumb(node.id).then(rec => {
@@ -130,13 +231,50 @@ const UI = (() => {
     }
 
     card.append(wrap, menuBtn, body);
+
+    if (node.type === Tree.ITEM) {
+      const noteBtn = document.createElement('button');
+      noteBtn.className = 'note-btn' + (node.note ? ' has-note' : '');
+      const noteIcon = document.createElement('img');
+      noteIcon.src = 'assets/note-icon.png';
+      noteIcon.alt = '';
+      noteIcon.draggable = false;
+      noteBtn.appendChild(noteIcon);
+      // No native title attribute — that's the OS tooltip box. Hovering a
+      // note that's already written shows the actual text in a themed
+      // preview instead; writing still happens by clicking to open the editor.
+      noteBtn.setAttribute('aria-label', node.note ? 'Edit note' : 'Add note');
+      noteBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        openNote(node);
+      });
+      if (node.note) {
+        noteBtn.addEventListener('mouseenter', () => showNotePreview(noteBtn, node.note));
+        noteBtn.addEventListener('mouseleave', scheduleHideNotePreview);
+      }
+      card.appendChild(noteBtn);
+    }
+
     card.addEventListener('click', () => activate(node));
     DnD.attachCard(card, node);
     return card;
   }
 
+  /* FLIP: measure where each card sits before the rebuild, then after
+     re-appending, offset it back to its old spot with a transform and
+     release the offset on the next frame — the browser animates the
+     release because .card has a transform transition. A card with no
+     "before" position is new, so it gets a fade-and-rise entrance instead
+     of trying to fly in from nowhere. */
   function renderGrid() {
     const grid = $('grid');
+    hideNotePreview(); // the hovered button is about to be replaced
+
+    const before = new Map();
+    for (const el of grid.children) {
+      if (el.dataset.id) before.set(el.dataset.id, el.getBoundingClientRect());
+    }
+
     grid.textContent = '';
 
     const children = Tree.childrenOf(state.nodes, state.currentId);
@@ -147,10 +285,36 @@ const UI = (() => {
       empty.innerHTML = state.currentId
         ? 'This folder is empty.<br><small>Add images, or drag them in from your desktop.</small>'
         : 'Nothing here yet.<br><small>Make a folder, or drag images in from your desktop.</small>';
-    } else {
-      empty.classList.add('hidden');
-      for (const node of children) grid.appendChild(makeCard(node));
+      return;
     }
+
+    empty.classList.add('hidden');
+    for (const node of children) grid.appendChild(makeCard(node));
+
+    const entering = [];
+    const flipping = [];
+    for (const el of grid.children) {
+      const prev = before.get(el.dataset.id);
+      if (!prev) { entering.push(el); continue; }
+      const next = el.getBoundingClientRect();
+      const dx = prev.left - next.left;
+      const dy = prev.top - next.top;
+      if (!dx && !dy) continue;
+      el.style.transition = 'none';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      flipping.push(el);
+    }
+    for (const el of entering) el.classList.add('card-enter');
+
+    // One forced reflow commits the jumped/entering start state before the
+    // release below is scheduled — without it the browser can collapse the
+    // "jump then release" into a single paint and skip the animation.
+    if (flipping.length || entering.length) grid.offsetHeight;
+
+    requestAnimationFrame(() => {
+      for (const el of flipping) { el.style.transition = ''; el.style.transform = ''; }
+      for (const el of entering) el.classList.remove('card-enter');
+    });
   }
 
   async function updateStatus() {
@@ -175,22 +339,18 @@ const UI = (() => {
     render();
   }
 
-  async function activate(node) {
+  function activate(node) {
     if (node.type === Tree.FOLDER) return navigate(node.id);
-    if (node.url) return window.open(node.url, '_blank', 'noopener');
-    // No link: fall back to the full-resolution image, which is the only
-    // other thing "open" could sensibly mean for an item.
-    const rec = await DB.getBlob(node.id);
-    if (rec && rec.blob) window.open(URL.createObjectURL(rec.blob), '_blank', 'noopener');
+    // No link means clicking does nothing — opening the full-resolution
+    // image was confusing when nothing was ever linked.
+    if (node.url) window.open(node.url, '_blank', 'noopener');
   }
 
   /* ----- creating ----- */
 
   async function newFolder() {
-    const name = prompt('Folder name');
-    if (name === null) return;
-    const title = name.trim();
-    if (!title) return;
+    const title = await Dialog.prompt({ title: 'New folder', okLabel: 'Create', placeholder: 'Folder name' });
+    if (title === null) return;
 
     const now = Date.now();
     const node = {
@@ -221,7 +381,7 @@ const UI = (() => {
       await DB.putImage(id, file, thumb, { name: file.name });
       await DB.putNode({
         id, type: Tree.ITEM, parentId: state.currentId,
-        title: file.name.replace(/\.[^.]+$/, ''), url: '',
+        title: file.name.replace(/\.[^.]+$/, ''), url: '', note: '',
         order: order++, createdAt: now, updatedAt: now,
       });
     }
@@ -261,10 +421,11 @@ const UI = (() => {
     const kids = Tree.descendantsOf(state.nodes, node.id);
     // Naming the real count matters: with nesting you can be one click from
     // destroying far more than you're picturing.
-    const msg = node.type === Tree.FOLDER && kids.length
-      ? `Delete “${node.title}” and the ${kids.length} item${kids.length === 1 ? '' : 's'} inside it?\n\nThis cannot be undone.`
-      : `Delete “${node.title}”?\n\nThis cannot be undone.`;
-    if (!confirm(msg)) return;
+    const title = node.type === Tree.FOLDER && kids.length
+      ? `Delete "${node.title}" and the ${kids.length} item${kids.length === 1 ? '' : 's'} inside it?`
+      : `Delete "${node.title}"?`;
+    const ok = await Dialog.confirm({ title, message: 'This cannot be undone.', okLabel: 'Delete', danger: true });
+    if (!ok) return;
 
     await DB.deleteNodes([node.id, ...kids]);
     await reload();
@@ -326,6 +487,70 @@ const UI = (() => {
     render();
   }
 
+  /* ----- note preview -----
+     Fixed-position like #card-menu, rather than nested inside the card —
+     the card clips overflow, so a tooltip anchored inside it would get cut
+     off for anything longer than a couple of words.
+
+     There's a real gap between the button and the panel below it, so a
+     bare mouseleave-hides-it wiring means the preview vanishes the instant
+     the pointer starts moving toward it — the panel is never reachable.
+     A short grace-period timer bridges that gap: leaving either the button
+     or the panel schedules a hide, but re-entering either one cancels it. */
+
+  let notePreviewHideTimer = null;
+
+  function cancelNotePreviewHide() {
+    if (notePreviewHideTimer) { clearTimeout(notePreviewHideTimer); notePreviewHideTimer = null; }
+  }
+
+  function showNotePreview(btn, text) {
+    cancelNotePreviewHide();
+    const el = $('note-preview');
+    el.textContent = text;
+    el.classList.remove('hidden');
+    const anchor = btn.getBoundingClientRect();
+    const size = el.getBoundingClientRect();
+    const left = Math.max(8, Math.min(anchor.left, innerWidth - size.width - 8));
+    const top = Math.max(8, Math.min(anchor.bottom + 8, innerHeight - size.height - 8));
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+  }
+
+  function hideNotePreview() {
+    cancelNotePreviewHide();
+    $('note-preview').classList.add('hidden');
+  }
+
+  function scheduleHideNotePreview() {
+    cancelNotePreviewHide();
+    notePreviewHideTimer = setTimeout(hideNotePreview, 200);
+  }
+
+  /* ----- note modal -----
+     A dedicated one-click editor for jotting down what a saved site is,
+     separate from the full edit modal — the whole point is to be faster to
+     reach than opening the ⋮ menu. */
+
+  function openNote(node) {
+    state.noteId = node.id;
+    $('note-title').textContent = 'Note — ' + (node.title || 'Untitled');
+    $('note-text').value = node.note || '';
+    $('note-modal').classList.add('open');
+    $('note-text').focus();
+  }
+
+  async function saveNote(e) {
+    e.preventDefault();
+    const node = Tree.byId(state.nodes, state.noteId);
+    if (!node) return;
+    const note = $('note-text').value.trim();
+    await DB.putNode({ ...node, note, updatedAt: Date.now() });
+    $('note-modal').classList.remove('open');
+    await reload();
+    render();
+  }
+
   /* ----- backup modal ----- */
 
   function bkMsg(text, kind) {
@@ -379,10 +604,13 @@ const UI = (() => {
       const { meta } = await Backup.parse(file);
       const when = new Date(meta.savedAt).toLocaleString();
       const count = meta.nodes.length;
-      if (!confirm(`Restore the backup from ${when}?\n\nIt holds ${count} item${count === 1 ? '' : 's'}. Everything currently in this browser will be replaced.`)) {
-        bkMsg('');
-        return;
-      }
+      const ok = await Dialog.confirm({
+        title: `Restore the backup from ${when}?`,
+        message: `It holds ${count} item${count === 1 ? '' : 's'}. Everything currently in this browser will be replaced.`,
+        okLabel: 'Restore',
+        danger: true,
+      });
+      if (!ok) { bkMsg(''); return; }
 
       const res = await Backup.restore(file, t => bkMsg(t, ''));
       state.currentId = null;
@@ -399,11 +627,18 @@ const UI = (() => {
   /* ----- wiring ----- */
 
   function init() {
+    Dialog.init();
     DnD.init({
       getNodes: () => state.nodes,
       move,
       addFiles,
     });
+
+    // Moving from the button onto the panel crosses a real gap — these
+    // keep it open through that gap the same way the button's own
+    // mouseenter does, rather than just tearing it down.
+    $('note-preview').addEventListener('mouseenter', cancelNotePreviewHide);
+    $('note-preview').addEventListener('mouseleave', scheduleHideNotePreview);
 
     $('new-folder-btn').addEventListener('click', newFolder);
     $('add-images-btn').addEventListener('click', () => $('file-input').click());
@@ -417,6 +652,7 @@ const UI = (() => {
     $('bk-file').addEventListener('change', e => doRestore(e.target.files[0]));
 
     $('edit-form').addEventListener('submit', saveEdit);
+    $('note-form').addEventListener('submit', saveNote);
 
     $('card-menu').addEventListener('click', e => {
       const act = e.target.dataset.act;
@@ -432,16 +668,19 @@ const UI = (() => {
       if (!$('card-menu').contains(e.target)) closeMenu();
     });
 
+    // #dialog-modal is excluded from all three: it resolves a pending
+    // promise on close (see Dialog.init below), so it needs Dialog.cancel()
+    // rather than having its 'open' class blindly stripped.
     for (const el of document.querySelectorAll('[data-close]')) {
       el.addEventListener('click', () => el.closest('.modal').classList.remove('open'));
     }
-    for (const modal of document.querySelectorAll('.modal')) {
-      modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+    for (const modal of document.querySelectorAll('.modal:not(#dialog-modal)')) {
+      onBackdropClick(modal, () => modal.classList.remove('open'));
     }
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
       closeMenu();
-      for (const m of document.querySelectorAll('.modal.open')) m.classList.remove('open');
+      for (const m of document.querySelectorAll('.modal.open:not(#dialog-modal)')) m.classList.remove('open');
     });
 
     /* No dragover handler on the grid itself. An earlier version called

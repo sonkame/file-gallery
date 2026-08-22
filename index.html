@@ -28,7 +28,6 @@
 
   <p class="empty hidden" id="empty"></p>
   <div class="grid" id="grid"></div>
-  <div class="droppane" id="droppane">Drop images here</div>
 </main>
 
 <!-- EDIT MODAL -->
@@ -41,6 +40,18 @@
       <input id="edit-name" type="text" placeholder="Title" aria-label="Title" maxlength="120">
       <input id="edit-url" type="text" placeholder="https://example.com (optional)" aria-label="Link">
       <p class="err hidden" id="edit-err"></p>
+      <button type="submit" class="btn cta">Save</button>
+    </form>
+  </div>
+</div>
+
+<!-- NOTE MODAL -->
+<div class="modal" id="note-modal" role="dialog" aria-modal="true" aria-labelledby="note-title">
+  <div class="modal-card">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h3 id="note-title">Note</h3>
+    <form id="note-form" autocomplete="off">
+      <textarea id="note-text" class="note-textarea" placeholder="What is this site? Why did you save it?" maxlength="2000"></textarea>
       <button type="submit" class="btn cta">Save</button>
     </form>
   </div>
@@ -70,12 +81,31 @@
   </div>
 </div>
 
+<!-- CONFIRM / PROMPT DIALOG -->
+<div class="modal" id="dialog-modal" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title">
+  <div class="modal-card dialog-card">
+    <h3 id="dialog-title"></h3>
+    <p class="dialog-msg" id="dialog-msg"></p>
+    <form id="dialog-form">
+      <input type="text" id="dialog-input" class="hidden" aria-label="Name">
+      <p class="err hidden" id="dialog-err"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="dialog-cancel">Cancel</button>
+        <button type="submit" class="btn cta" id="dialog-ok">OK</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- CARD MENU -->
 <div class="menu hidden" id="card-menu">
   <button data-act="open">Open</button>
   <button data-act="edit">Edit</button>
   <button data-act="delete" class="danger">Delete</button>
 </div>
+
+<!-- NOTE HOVER PREVIEW -->
+<div class="note-preview hidden" id="note-preview"></div>
 
 <script src="js/tree.js"></script>
 <script src="js/zip.js"></script>
