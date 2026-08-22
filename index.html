@@ -4,7 +4,303 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>File Gallery</title>
-<link rel="stylesheet" href="styles.css">
+<style>
+/* Theme tokens match CryptoFolio so the two feel like sibling apps. */
+:root {
+  --bg-1: #000;
+  --bg-2: #11151f;
+  --bg-3: #171c29;
+  --border: #232a3b;
+  --text: #e6e9f0;
+  --muted: #8b93a7;
+  --accent: #4f8cff;
+  --danger: #ff5c5c;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-1);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden { display: none !important; }
+
+/* ----- top bar ----- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.brand { font-size: 18px; font-weight: 700; letter-spacing: -0.2px; }
+.brand span { color: var(--accent); }
+.status { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* ----- buttons ----- */
+
+.btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.btn:hover { border-color: var(--accent); background: var(--bg-3); }
+.btn.small { padding: 6px 12px; font-size: 13px; position: relative; }
+.btn.cta { background: var(--accent); border-color: var(--accent); color: #061223; width: 100%; }
+.btn.cta:hover { filter: brightness(1.08); background: var(--accent); }
+.btn:disabled { opacity: .55; cursor: default; }
+
+/* Nudge dot: data exists that hasn't been written to disk since it changed. */
+.dot {
+  position: absolute; top: -3px; right: -3px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-2);
+}
+
+/* ----- layout ----- */
+
+.wrap { max-width: 1400px; margin: 0 auto; padding: 22px; }
+
+.toolbar {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; margin-bottom: 18px;
+}
+.toolbar-actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* ----- breadcrumbs ----- */
+
+.crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 34px; }
+.crumb {
+  background: none; border: 1px solid transparent; color: var(--muted);
+  font: inherit; font-weight: 600; cursor: pointer;
+  padding: 5px 10px; border-radius: 7px;
+}
+.crumb:hover { color: var(--text); background: var(--bg-3); }
+.crumb.current { color: var(--text); cursor: default; }
+.crumb.current:hover { background: none; }
+.crumb.drop-into { border-color: var(--accent); background: var(--bg-3); color: var(--text); }
+.crumb-sep { color: var(--muted); opacity: .6; }
+
+/* ----- grid ----- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  position: relative;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .15s, transform .26s cubic-bezier(.2, .8, .2, 1), opacity .2s ease;
+}
+.card:hover { border-color: #35405c; }
+.card.dragging { opacity: .4; }
+
+/* Starting state for a card that just appeared — new upload, or an item
+   that moved into the folder currently open. Removed a frame after
+   insertion so the transition above animates it in. */
+.card.card-enter { opacity: 0; transform: scale(.92); }
+
+/* Drop affordances. A rejected target renders nothing at all — the rule is
+   felt as absence of feedback rather than reported after the drop. */
+.card.drop-into { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.card.drop-before::before,
+.card.drop-after::before {
+  content: ""; position: absolute; top: 6px; bottom: 6px; width: 3px;
+  background: var(--accent); border-radius: 2px; z-index: 3;
+}
+.card.drop-before::before { left: -9px; }
+.card.drop-after::before { right: -9px; }
+
+.thumb-wrap {
+  position: relative; aspect-ratio: 4 / 3;
+  background: var(--bg-3); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.thumb-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.folder-icon { font-size: 46px; line-height: 1; opacity: .85; }
+.card.folder .thumb-wrap { background: linear-gradient(160deg, var(--bg-3), #1d2333); }
+.folder-count {
+  position: absolute; bottom: 8px; right: 10px;
+  font-size: 11px; color: var(--muted);
+  background: rgba(11,14,22,.75); padding: 2px 7px; border-radius: 20px;
+}
+
+.card-body { padding: 9px 11px; border-top: 1px solid var(--border); }
+.card-title {
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-sub {
+  font-size: 11px; color: var(--muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.card-menu-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 6px;
+  background: rgba(11,14,22,.8); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; font-size: 14px; line-height: 1;
+  opacity: 0; transition: opacity .15s;
+}
+.card:hover .card-menu-btn, .card-menu-btn:focus { opacity: 1; }
+
+.note-btn {
+  position: absolute; top: 6px; left: 6px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 6px;
+  background: rgba(11,14,22,.8); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .15s, border-color .15s;
+}
+.card:hover .note-btn, .note-btn:focus { opacity: 1; }
+.note-btn img { width: 19px; height: 19px; object-fit: contain; pointer-events: none; }
+/* A card that already has a note keeps the button visible without
+   hovering, so a note you left yourself is something you notice while
+   scanning the grid, not something you have to go looking for. */
+.note-btn.has-note { opacity: 1; border-color: var(--accent); }
+
+.note-textarea {
+  width: 100%; min-height: 140px; resize: vertical;
+  margin-bottom: 14px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font: inherit; line-height: 1.5;
+}
+.note-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* ----- empty state ----- */
+
+.empty { color: var(--muted); text-align: center; padding: 40px 20px; }
+.empty small { display: block; margin-top: 6px; opacity: .8; }
+
+/* ----- modals ----- */
+
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(4,6,12,.72);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal.open { display: flex; }
+.modal-card {
+  position: relative;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px;
+  width: min(460px, 100%); max-height: 90vh; overflow-y: auto;
+}
+.modal-card h3 { margin: 0 0 14px; font-size: 19px; }
+.modal-x {
+  position: absolute; top: 12px; right: 12px;
+  background: none; border: none; color: var(--muted);
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.modal-x:hover { color: var(--text); }
+
+.modal input[type="text"] {
+  width: 100%; margin-bottom: 10px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font: inherit;
+}
+.modal input[type="text"]:focus { outline: none; border-color: var(--accent); }
+
+.edit-preview {
+  width: 100%; max-height: 240px; object-fit: contain;
+  background: var(--bg-3); border-radius: 8px; margin-bottom: 12px;
+}
+
+.lede { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.bk-status { font-size: 13px; margin: 0 0 12px; }
+.bk-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; min-height: 18px; }
+.bk-tip { font-size: 12px; color: var(--muted); margin: 14px 0 0; }
+.warn { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.err { color: var(--danger); font-size: 13px; margin: 0 0 10px; }
+.msg { font-size: 13px; margin: 12px 0 0; }
+.msg.ok { color: #4ade80; }
+.msg.err { color: var(--danger); }
+
+hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+.filelabel {
+  display: block; text-align: center; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: 8px;
+  padding: 14px; color: var(--muted); font-weight: 600;
+}
+.filelabel:hover { border-color: var(--accent); color: var(--text); }
+
+/* ----- confirm / prompt dialog -----
+   Replaces window.confirm/prompt. Those are synchronous and block the
+   main thread, which can freeze a stale frame — a menu that had just been
+   told to hide could still be visibly painted behind the native dialog.
+   This one is a normal async modal, so the page always repaints first. */
+
+.dialog-card { width: min(400px, 100%); }
+.dialog-msg { color: var(--muted); font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.dialog-actions .btn { min-width: 84px; }
+.btn.cta.danger-cta { background: var(--danger); border-color: var(--danger); color: #2a0a0a; }
+.btn.cta.danger-cta:hover { background: var(--danger); filter: brightness(1.08); }
+
+/* ----- card menu ----- */
+
+.menu {
+  position: fixed; z-index: 120;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 9px; padding: 5px; min-width: 140px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.5);
+}
+.menu button {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text);
+  font: inherit; padding: 8px 12px; border-radius: 6px; cursor: pointer;
+}
+.menu button:hover { background: var(--bg-3); }
+.menu button.danger { color: var(--danger); }
+
+/* ----- note hover preview ----- */
+
+.note-preview {
+  position: fixed; z-index: 130;
+  max-width: 260px; max-height: 200px; overflow-y: auto;
+  background: var(--bg-2); border: 1px solid var(--accent);
+  border-radius: 9px; padding: 10px 12px;
+  font-size: 12px; line-height: 1.5; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  box-shadow: 0 12px 34px rgba(0,0,0,.5);
+  cursor: text;
+}
+
+@media (max-width: 600px) {
+  .wrap { padding: 14px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .toolbar-actions { margin-left: 0; width: 100%; }
+  .toolbar-actions .btn { flex: 1; }
+}
+</style>
 </head>
 <body>
 
@@ -107,12 +403,1770 @@
 <!-- NOTE HOVER PREVIEW -->
 <div class="note-preview hidden" id="note-preview"></div>
 
-<script src="js/tree.js"></script>
-<script src="js/zip.js"></script>
-<script src="js/images.js"></script>
-<script src="js/db.js"></script>
-<script src="js/backup.js"></script>
-<script src="js/dnd.js"></script>
-<script src="js/ui.js"></script>
+<script>
+/* ==================== tree.js ====================
+   Pure tree logic: ordering, move validation, recursive descent.
+
+   Everything here operates on plain arrays of node records and returns
+   new data. No IndexedDB, no DOM. That's what makes it testable in
+   isolation, and it's where the rules that protect the tree live. */
+
+const Tree = (() => {
+  const FOLDER = 'folder';
+  const ITEM = 'item';
+
+  /* Folders always sort above items, then by `order` within their group.
+     Deriving "folders first" from the type at sort time — rather than
+     maintaining it as a position — means it cannot drift out of sync. */
+  function sortKey(node) {
+    return node.type === FOLDER ? 0 : 1;
+  }
+
+  function sortNodes(nodes) {
+    return nodes.slice().sort((a, b) => {
+      const ka = sortKey(a), kb = sortKey(b);
+      if (ka !== kb) return ka - kb;
+      return a.order - b.order;
+    });
+  }
+
+  function childrenOf(nodes, parentId) {
+    return sortNodes(nodes.filter(n => n.parentId === parentId));
+  }
+
+  /* Orders are tracked per (parent, type) group. Because sorting breaks ties
+     on type first, a folder and an item may share an order value without
+     ambiguity, so the two groups renumber independently. */
+  function siblingGroup(nodes, parentId, type) {
+    return sortNodes(nodes.filter(n => n.parentId === parentId && n.type === type));
+  }
+
+  function byId(nodes, id) {
+    return nodes.find(n => n.id === id) || null;
+  }
+
+  /* Walks up from `id` looking for `ancestorId`. Used to reject moving a
+     folder into its own subtree, which would detach that subtree from the
+     root — the nodes would still exist but become unreachable forever. */
+  function isDescendantOf(nodes, id, ancestorId) {
+    let cur = byId(nodes, id);
+    const seen = new Set();
+    while (cur && cur.parentId !== null) {
+      if (seen.has(cur.id)) return false; // corrupt data; fail closed
+      seen.add(cur.id);
+      if (cur.parentId === ancestorId) return true;
+      cur = byId(nodes, cur.parentId);
+    }
+    return false;
+  }
+
+  /* Every id beneath `id`, depth first. Drives recursive delete. */
+  function descendantsOf(nodes, id) {
+    const out = [];
+    const stack = [id];
+    const seen = new Set([id]);
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const n of nodes) {
+        if (n.parentId === cur && !seen.has(n.id)) {
+          seen.add(n.id);
+          out.push(n.id);
+          stack.push(n.id);
+        }
+      }
+    }
+    return out;
+  }
+
+  /* Breadcrumb chain from root down to (and including) `id`. */
+  function pathTo(nodes, id) {
+    const out = [];
+    let cur = byId(nodes, id);
+    const seen = new Set();
+    while (cur) {
+      if (seen.has(cur.id)) break;
+      seen.add(cur.id);
+      out.unshift(cur);
+      cur = cur.parentId === null ? null : byId(nodes, cur.parentId);
+    }
+    return out;
+  }
+
+  /* The single authority on whether a drag is legal. The UI asks this before
+     showing any drop affordance, so a rejected move is felt as "no drop
+     indicator" rather than reported as an error after the fact. */
+  function canMove(nodes, dragId, newParentId) {
+    const drag = byId(nodes, dragId);
+    if (!drag) return false;
+    if (dragId === newParentId) return false;
+
+    if (newParentId !== null) {
+      const target = byId(nodes, newParentId);
+      if (!target) return false;
+      if (target.type !== FOLDER) return false; // nothing nests inside an item
+      if (drag.type === FOLDER && isDescendantOf(nodes, newParentId, dragId)) return false;
+    }
+    return true;
+  }
+
+  function renumber(group) {
+    return group.map((n, i) => (n.order === i ? n : { ...n, order: i }));
+  }
+
+  /* Moves `dragId` under `newParentId`, positioned before `beforeId`
+     (or last when beforeId is null). Returns the full updated node list
+     plus just the records that changed, so callers write the minimum. */
+  function moveNode(nodes, dragId, newParentId, beforeId = null) {
+    if (!canMove(nodes, dragId, newParentId)) {
+      return { nodes, changed: [], ok: false };
+    }
+
+    const drag = byId(nodes, dragId);
+    const oldParentId = drag.parentId;
+    const moved = { ...drag, parentId: newParentId, updatedAt: Date.now() };
+
+    const rest = nodes.filter(n => n.id !== dragId);
+
+    // Position within the destination group of the same type.
+    const dest = siblingGroup(rest, newParentId, drag.type);
+    let insertAt = dest.length;
+    if (beforeId !== null) {
+      const idx = dest.findIndex(n => n.id === beforeId);
+      if (idx !== -1) insertAt = idx;
+    }
+    dest.splice(insertAt, 0, moved);
+
+    const updates = new Map();
+    for (const n of renumber(dest)) updates.set(n.id, n);
+
+    // The vacated group closes its gap so orders stay dense.
+    if (oldParentId !== newParentId) {
+      const src = siblingGroup(rest, oldParentId, drag.type);
+      for (const n of renumber(src)) updates.set(n.id, n);
+    }
+
+    const next = nodes.map(n => updates.get(n.id) || n);
+    for (const n of updates.values()) {
+      if (!next.some(x => x.id === n.id)) next.push(n);
+    }
+
+    const changed = [];
+    for (const n of next) {
+      const before = byId(nodes, n.id);
+      if (!before || before.order !== n.order || before.parentId !== n.parentId) changed.push(n);
+    }
+
+    return { nodes: next, changed, ok: true };
+  }
+
+  /* Order for a freshly created node: last within its own type group. */
+  function nextOrder(nodes, parentId, type) {
+    const group = siblingGroup(nodes, parentId, type);
+    return group.length ? group[group.length - 1].order + 1 : 0;
+  }
+
+  return {
+    FOLDER, ITEM,
+    sortNodes, childrenOf, siblingGroup, byId,
+    isDescendantOf, descendantsOf, pathTo,
+    canMove, moveNode, renumber, nextOrder,
+  };
+})();
+</script>
+
+<script>
+/* ==================== zip.js ====================
+   Minimal store-only ZIP writer and reader. No dependencies — the site has
+   to work offline from disk, so a CDN library isn't an option.
+
+   Store-only (compression method 0) is deliberate, not lazy: PNG and JPEG
+   payloads are already compressed, so deflating them costs CPU for roughly
+   one percent of size.
+
+   Field layouts follow APPNOTE.TXT. Signatures:
+     local file header      0x04034b50
+     central directory      0x02014b50
+     end of central dir     0x06064b50 (zip64) / 0x06054b50
+     zip64 eocd locator     0x07064b50 */
+
+const Zip = (() => {
+  const LOCAL_SIG = 0x04034b50;
+  const CD_SIG = 0x02014b50;
+  const EOCD_SIG = 0x06054b50;
+  const Z64_EOCD_SIG = 0x06064b50;
+  const Z64_LOC_SIG = 0x07064b50;
+
+  const U32_MAX = 0xffffffff;
+  const U16_MAX = 0xffff;
+  const CHUNK = 4 * 1024 * 1024; // CRC is streamed in 4MB slices
+
+  /* ----- CRC-32 ----- */
+
+  let TABLE = null;
+  function crcTable() {
+    if (TABLE) return TABLE;
+    TABLE = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      TABLE[i] = c >>> 0;
+    }
+    return TABLE;
+  }
+
+  function crc32Update(crc, bytes) {
+    const t = crcTable();
+    let c = crc;
+    for (let i = 0; i < bytes.length; i++) c = t[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return c >>> 0;
+  }
+
+  /* Streams the blob in slices so a multi-GB entry never lands in memory
+     all at once. The blob itself stays a disk-backed reference. */
+  async function crc32Blob(blob) {
+    let crc = 0xffffffff;
+    for (let off = 0; off < blob.size; off += CHUNK) {
+      const buf = await blob.slice(off, Math.min(off + CHUNK, blob.size)).arrayBuffer();
+      crc = crc32Update(crc, new Uint8Array(buf));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  /* ----- byte helpers ----- */
+
+  function dosDateTime(date) {
+    const y = date.getFullYear();
+    // The DOS epoch starts at 1980; anything earlier clamps rather than wrapping.
+    const year = y < 1980 ? 0 : y - 1980;
+    const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+    const dt = (year << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+    return { time: time & 0xffff, date: dt & 0xffff };
+  }
+
+  function makeWriter(size) {
+    const buf = new ArrayBuffer(size);
+    const view = new DataView(buf);
+    const arr = new Uint8Array(buf);
+    let pos = 0;
+    return {
+      u16(v) { view.setUint16(pos, v, true); pos += 2; },
+      u32(v) { view.setUint32(pos, v >>> 0, true); pos += 4; },
+      u64(v) { view.setBigUint64(pos, BigInt(v), true); pos += 8; },
+      bytes(b) { arr.set(b, pos); pos += b.length; },
+      done() { return arr.subarray(0, pos); },
+    };
+  }
+
+  const utf8 = s => new TextEncoder().encode(s);
+
+  /* ----- writing ----- */
+
+  /* entries: [{ name, blob }] -> Blob
+     Parts are collected as an array and handed to the Blob constructor at the
+     end, so the browser can back the archive with disk rather than holding it
+     in memory. */
+  async function write(entries) {
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    const now = new Date();
+    const { time, date } = dosDateTime(now);
+
+    for (const entry of entries) {
+      const nameBytes = utf8(entry.name);
+      const blob = entry.blob;
+      const size = blob.size;
+      const crc = await crc32Blob(blob);
+      const needs64 = size >= U32_MAX || offset >= U32_MAX;
+
+      // Local header. ZIP64 puts the true sizes in an extra field and
+      // leaves the 32-bit fields saturated at 0xFFFFFFFF.
+      const extraLen = needs64 ? 20 : 0;
+      const lh = makeWriter(30 + nameBytes.length + extraLen);
+      lh.u32(LOCAL_SIG);
+      lh.u16(needs64 ? 45 : 20);   // version needed
+      lh.u16(0x0800);              // flag: UTF-8 filenames
+      lh.u16(0);                   // method: store
+      lh.u16(time);
+      lh.u16(date);
+      lh.u32(crc);
+      lh.u32(needs64 ? U32_MAX : size);
+      lh.u32(needs64 ? U32_MAX : size);
+      lh.u16(nameBytes.length);
+      lh.u16(extraLen);
+      lh.bytes(nameBytes);
+      if (needs64) {
+        lh.u16(0x0001);            // zip64 extended information
+        lh.u16(16);
+        lh.u64(size);              // uncompressed
+        lh.u64(size);              // compressed
+      }
+
+      const localBytes = lh.done();
+      parts.push(localBytes, blob);
+
+      central.push({ nameBytes, crc, size, offset, needs64 });
+      offset += localBytes.length + size;
+    }
+
+    // Central directory.
+    const cdStart = offset;
+    for (const e of central) {
+      const big = e.size >= U32_MAX;
+      const bigOff = e.offset >= U32_MAX;
+      const extraFields = (big ? 16 : 0) + (bigOff ? 8 : 0);
+      const extraLen = extraFields ? extraFields + 4 : 0;
+
+      const cd = makeWriter(46 + e.nameBytes.length + extraLen);
+      cd.u32(CD_SIG);
+      cd.u16(45);                          // version made by
+      cd.u16(extraLen ? 45 : 20);          // version needed
+      cd.u16(0x0800);
+      cd.u16(0);
+      cd.u16(time);
+      cd.u16(date);
+      cd.u32(e.crc);
+      cd.u32(big ? U32_MAX : e.size);
+      cd.u32(big ? U32_MAX : e.size);
+      cd.u16(e.nameBytes.length);
+      cd.u16(extraLen);
+      cd.u16(0);                           // comment length
+      cd.u16(0);                           // disk number start
+      cd.u16(0);                           // internal attrs
+      cd.u32(0);                           // external attrs
+      cd.u32(bigOff ? U32_MAX : e.offset);
+      cd.bytes(e.nameBytes);
+      if (extraLen) {
+        cd.u16(0x0001);
+        cd.u16(extraFields);
+        if (big) { cd.u64(e.size); cd.u64(e.size); }
+        if (bigOff) cd.u64(e.offset);
+      }
+
+      const bytes = cd.done();
+      parts.push(bytes);
+      offset += bytes.length;
+    }
+
+    const cdSize = offset - cdStart;
+    const need64End = central.length >= U16_MAX || cdSize >= U32_MAX || cdStart >= U32_MAX;
+
+    if (need64End) {
+      const z = makeWriter(56 + 20);
+      z.u32(Z64_EOCD_SIG);
+      z.u64(44);                 // size of this record, minus its first 12 bytes
+      z.u16(45);
+      z.u16(45);
+      z.u32(0);
+      z.u32(0);
+      z.u64(central.length);
+      z.u64(central.length);
+      z.u64(cdSize);
+      z.u64(cdStart);
+      // ZIP64 end of central directory locator
+      z.u32(Z64_LOC_SIG);
+      z.u32(0);
+      z.u64(offset);
+      z.u32(1);
+      parts.push(z.done());
+    }
+
+    const eocd = makeWriter(22);
+    eocd.u32(EOCD_SIG);
+    eocd.u16(0);
+    eocd.u16(0);
+    eocd.u16(Math.min(central.length, U16_MAX));
+    eocd.u16(Math.min(central.length, U16_MAX));
+    eocd.u32(Math.min(cdSize, U32_MAX));
+    eocd.u32(Math.min(cdStart, U32_MAX));
+    eocd.u16(0);
+    parts.push(eocd.done());
+
+    return new Blob(parts, { type: 'application/zip' });
+  }
+
+  /* ----- reading ----- */
+
+  function findEOCD(bytes) {
+    // The EOCD sits at the end, but a trailing comment can push it back
+    // by up to 64KB, so scan backwards for the signature.
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const min = Math.max(0, bytes.length - (22 + 0xffff));
+    for (let i = bytes.length - 22; i >= min; i--) {
+      if (view.getUint32(i, true) === EOCD_SIG) return i;
+    }
+    return -1;
+  }
+
+  function readZip64Extra(bytes, start, len, need) {
+    // Walk the extra-field chain looking for the 0x0001 header. Fields
+    // appear in fixed order but only when the 32-bit slot was saturated.
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let p = start;
+    const end = start + len;
+    while (p + 4 <= end) {
+      const id = view.getUint16(p, true);
+      const size = view.getUint16(p + 2, true);
+      if (id === 0x0001) {
+        let q = p + 4;
+        const out = {};
+        if (need.size) { out.size = Number(view.getBigUint64(q, true)); q += 8; out.compressed = Number(view.getBigUint64(q, true)); q += 8; }
+        if (need.offset) { out.offset = Number(view.getBigUint64(q, true)); q += 8; }
+        return out;
+      }
+      p += 4 + size;
+    }
+    return {};
+  }
+
+  /* blob -> [{ name, blob }] */
+  async function read(blob) {
+    const all = new Uint8Array(await blob.arrayBuffer());
+    const view = new DataView(all.buffer);
+
+    const eocdPos = findEOCD(all);
+    if (eocdPos === -1) throw new Error('Not a zip file — no end-of-central-directory record.');
+
+    let count = view.getUint16(eocdPos + 10, true);
+    let cdStart = view.getUint32(eocdPos + 16, true);
+
+    // Saturated fields mean the real values live in the ZIP64 record, which
+    // is located through the locator immediately preceding the EOCD.
+    if (count === U16_MAX || cdStart === U32_MAX) {
+      const locPos = eocdPos - 20;
+      if (locPos >= 0 && view.getUint32(locPos, true) === Z64_LOC_SIG) {
+        const z64 = Number(view.getBigUint64(locPos + 8, true));
+        if (view.getUint32(z64, true) === Z64_EOCD_SIG) {
+          count = Number(view.getBigUint64(z64 + 32, true));
+          cdStart = Number(view.getBigUint64(z64 + 48, true));
+        }
+      }
+    }
+
+    const entries = [];
+    let p = cdStart;
+    for (let i = 0; i < count; i++) {
+      if (view.getUint32(p, true) !== CD_SIG) break;
+      const nameLen = view.getUint16(p + 28, true);
+      const extraLen = view.getUint16(p + 30, true);
+      const commentLen = view.getUint16(p + 32, true);
+      let size = view.getUint32(p + 24, true);
+      let localOff = view.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(all.subarray(p + 46, p + 46 + nameLen));
+
+      if (size === U32_MAX || localOff === U32_MAX) {
+        const z = readZip64Extra(all, p + 46 + nameLen, extraLen, {
+          size: size === U32_MAX,
+          offset: localOff === U32_MAX,
+        });
+        if (z.size !== undefined) size = z.size;
+        if (z.offset !== undefined) localOff = z.offset;
+      }
+
+      // The local header's own name/extra lengths can differ from the central
+      // directory's, so data start is computed from the local header itself.
+      const lNameLen = view.getUint16(localOff + 26, true);
+      const lExtraLen = view.getUint16(localOff + 28, true);
+      const dataStart = localOff + 30 + lNameLen + lExtraLen;
+
+      entries.push({ name, blob: blob.slice(dataStart, dataStart + size) });
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+
+    return entries;
+  }
+
+  /* Magic-byte sniff used by restore to tell a zip from a JSON backup. */
+  async function isZip(blob) {
+    if (blob.size < 4) return false;
+    const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+    return head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
+  }
+
+  return { write, read, isZip, crc32Blob, crc32Update };
+})();
+</script>
+
+<script>
+/* ==================== images.js ====================
+   Thumbnail generation and blob/data-URL conversion.
+
+   Split out from ui.js because backup.js needs thumbnail generation too:
+   thumbnails aren't stored in backups, they're regenerated on restore. */
+
+const Images = (() => {
+  const MAX_EDGE = 400;
+  const QUALITY = 0.8;
+
+  const EXT_BY_MIME = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
+    'image/webp': 'webp', 'image/avif': 'avif', 'image/svg+xml': 'svg',
+    'image/bmp': 'bmp',
+  };
+
+  const extFor = mime => EXT_BY_MIME[mime] || 'bin';
+  const mimeForExt = ext => Object.keys(EXT_BY_MIME).find(m => EXT_BY_MIME[m] === ext) || 'application/octet-stream';
+
+  function loadImage(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Not a readable image.')); };
+      img.src = url;
+    });
+  }
+
+  /* Downscales to fit MAX_EDGE. Returns a JPEG blob, except for formats
+     where re-encoding would destroy the point of the file: SVG is vector
+     and has no meaningful raster thumbnail size, so it's passed through. */
+  async function makeThumb(blob) {
+    if (blob.type === 'image/svg+xml') return blob;
+
+    let img;
+    try {
+      img = await loadImage(blob);
+    } catch (_) {
+      return blob; // unreadable by the decoder; keep the original as its own preview
+    }
+
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) return blob;
+
+    const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+    if (scale === 1 && blob.size < 120 * 1024) return blob; // already small enough to serve directly
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const out = await new Promise(res => canvas.toBlob(res, 'image/jpeg', QUALITY));
+    return out || blob;
+  }
+
+  function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error || new Error('Could not read image data.'));
+      r.readAsDataURL(blob);
+    });
+  }
+
+  async function dataURLToBlob(url) {
+    const res = await fetch(url);
+    return res.blob();
+  }
+
+  return { makeThumb, blobToDataURL, dataURLToBlob, extFor, mimeForExt, MAX_EDGE };
+})();
+</script>
+
+<script>
+/* ==================== db.js ====================
+   IndexedDB access, promisified.
+
+   Three stores, deliberately separated:
+     nodes   the tree — small records, read on every render
+     thumbs  downscaled previews, read only for what's on screen
+     blobs   full-resolution originals, read only on export or full view
+
+   IndexedDB deserializes whole records. Keeping image data out of `nodes`
+   is what lets a folder of 5,000 images draw without touching a byte of
+   full-resolution data. Blobs store directly — the structured clone
+   algorithm handles them natively. */
+
+const DB = (() => {
+  const NAME = 'file-gallery';
+  const VERSION = 1;
+  const NODES = 'nodes', THUMBS = 'thumbs', BLOBS = 'blobs';
+
+  let dbp = null;
+
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise((resolve, reject) => {
+      const req = indexedDB.open(NAME, VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(NODES)) {
+          const s = db.createObjectStore(NODES, { keyPath: 'id' });
+          s.createIndex('parentId', 'parentId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(THUMBS)) db.createObjectStore(THUMBS, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(BLOBS)) db.createObjectStore(BLOBS, { keyPath: 'id' });
+      };
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = () => reject(req.error || new Error('Could not open the database.'));
+      req.onblocked = () => reject(new Error('Database blocked — close other tabs of this site and retry.'));
+    });
+    return dbp;
+  }
+
+  function wrap(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /* Resolves on transaction.complete rather than on the last request's
+     success. A request can succeed inside a transaction that later aborts;
+     waiting for complete is what actually means "written". */
+  async function tx(stores, mode, fn) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction(stores, mode);
+      let result;
+      t.oncomplete = () => resolve(result);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error || new Error('Transaction aborted — storage may be full.'));
+      Promise.resolve(fn(t)).then(v => { result = v; }).catch(err => {
+        try { t.abort(); } catch (_) {}
+        reject(err);
+      });
+    });
+  }
+
+  /* ----- nodes ----- */
+
+  const allNodes = () => tx([NODES], 'readonly', t => wrap(t.objectStore(NODES).getAll()));
+
+  const putNodes = list => tx([NODES], 'readwrite', t => {
+    const s = t.objectStore(NODES);
+    for (const n of list) s.put(n);
+  });
+
+  const putNode = node => putNodes([node]);
+
+  /* ----- images ----- */
+
+  const getThumb = id => tx([THUMBS], 'readonly', t => wrap(t.objectStore(THUMBS).get(id)));
+  const getBlob = id => tx([BLOBS], 'readonly', t => wrap(t.objectStore(BLOBS).get(id)));
+
+  const putImage = (id, blob, thumb, meta = {}) =>
+    tx([BLOBS, THUMBS], 'readwrite', t => {
+      t.objectStore(BLOBS).put({ id, blob, name: meta.name || '', mime: blob.type || '' });
+      t.objectStore(THUMBS).put({ id, blob: thumb });
+    });
+
+  /* Every stored original's size, without loading the originals. Drives the
+     100MB threshold that picks the backup format. */
+  async function totalBlobBytes() {
+    return tx([BLOBS], 'readonly', t => new Promise((resolve, reject) => {
+      let total = 0;
+      const req = t.objectStore(BLOBS).openCursor();
+      req.onsuccess = e => {
+        const cur = e.target.result;
+        if (!cur) return resolve(total);
+        if (cur.value && cur.value.blob) total += cur.value.blob.size;
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    }));
+  }
+
+  async function allBlobs() {
+    return tx([BLOBS], 'readonly', t => wrap(t.objectStore(BLOBS).getAll()));
+  }
+
+  /* ----- delete ----- */
+
+  /* Nodes and their image data go in one transaction. Splitting them would
+     let a failure halfway through leave orphaned blobs consuming disk with
+     nothing referencing them. */
+  const deleteNodes = ids => tx([NODES, THUMBS, BLOBS], 'readwrite', t => {
+    const n = t.objectStore(NODES), th = t.objectStore(THUMBS), b = t.objectStore(BLOBS);
+    for (const id of ids) { n.delete(id); th.delete(id); b.delete(id); }
+  });
+
+  const clearAll = () => tx([NODES, THUMBS, BLOBS], 'readwrite', t => {
+    t.objectStore(NODES).clear();
+    t.objectStore(THUMBS).clear();
+    t.objectStore(BLOBS).clear();
+  });
+
+  /* Bulk restore path. One transaction so a partial restore can't happen. */
+  const replaceAll = (nodes, images) => tx([NODES, THUMBS, BLOBS], 'readwrite', t => {
+    const n = t.objectStore(NODES), th = t.objectStore(THUMBS), b = t.objectStore(BLOBS);
+    n.clear(); th.clear(); b.clear();
+    for (const node of nodes) n.put(node);
+    for (const img of images) {
+      b.put({ id: img.id, blob: img.blob, name: img.name || '', mime: img.blob.type || '' });
+      if (img.thumb) th.put({ id: img.id, blob: img.thumb });
+    }
+  });
+
+  return {
+    open, allNodes, putNode, putNodes,
+    getThumb, getBlob, putImage, totalBlobBytes, allBlobs,
+    deleteNodes, clearAll, replaceAll,
+  };
+})();
+</script>
+
+<script>
+/* ==================== backup.js ====================
+   Export and restore. The site keeps everything in one browser; clearing
+   site data, switching machines or losing the disk wipes it. The backup
+   file is the only thing that survives that, so the round trip has to be
+   exact.
+
+   Format is chosen by raw image bytes:
+     <= 100MB  a single .json with images embedded as base64
+     >  100MB  a .zip with data.json plus images/<id>.<ext>
+
+   The threshold measures raw bytes, not encoded size, because base64
+   inflates by about a third — deciding on encoded size would let a 100MB
+   image set leave as a 133MB JSON file.
+
+   Both formats carry a byte-identical tree payload, so the two restore
+   paths converge immediately after unpacking. That's what keeps them
+   genuinely interchangeable instead of drifting apart over time. */
+
+const Backup = (() => {
+  const FORMAT = 'filegallery.backup';
+  const VERSION = 1;
+  const THRESHOLD = 100 * 1024 * 1024;
+  const LAST_KEY = 'filegallery.backup.last'; // epoch ms of a real saved file
+  const SIG_KEY = 'filegallery.backup.sig';   // data fingerprint at that save
+
+  const stamp = () => new Date().toISOString().slice(0, 10);
+
+  /* ----- change tracking -----
+     Fingerprints the tree so the nudge dot can answer "has anything changed
+     since the last backup?". Node count plus latest mtime is enough to catch
+     adds, edits, moves and deletes without hashing image data. */
+  function signature(nodes) {
+    let latest = 0;
+    for (const n of nodes) {
+      if (n.updatedAt > latest) latest = n.updatedAt;
+      if (n.createdAt > latest) latest = n.createdAt;
+    }
+    return nodes.length + ':' + latest;
+  }
+
+  async function isDirty() {
+    const nodes = await DB.allNodes();
+    if (!nodes.length) return false; // nothing to lose yet
+    return localStorage.getItem(SIG_KEY) !== signature(nodes);
+  }
+
+  function lastBackupAt() {
+    const v = Number(localStorage.getItem(LAST_KEY));
+    return v > 0 ? new Date(v) : null;
+  }
+
+  async function markSaved(nodes) {
+    localStorage.setItem(LAST_KEY, String(Date.now()));
+    localStorage.setItem(SIG_KEY, signature(nodes));
+  }
+
+  /* ----- export ----- */
+
+  function download(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoking immediately can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  async function exportAll(onProgress = () => {}) {
+    const nodes = await DB.allNodes();
+    if (!nodes.length) throw new Error('Nothing to back up yet.');
+
+    onProgress('Measuring…');
+    const totalBytes = await DB.totalBlobBytes();
+    const useZip = totalBytes > THRESHOLD;
+
+    const meta = { format: FORMAT, version: VERSION, savedAt: new Date().toISOString(), nodes };
+
+    let blob, filename;
+    if (useZip) {
+      onProgress('Packing images…');
+      const images = await DB.allBlobs();
+      const entries = [{
+        name: 'data.json',
+        blob: new Blob([JSON.stringify(meta)], { type: 'application/json' }),
+      }];
+      for (const img of images) {
+        entries.push({ name: `images/${img.id}.${Images.extFor(img.mime || img.blob.type)}`, blob: img.blob });
+      }
+      onProgress('Writing zip…');
+      blob = await Zip.write(entries);
+      filename = `gallery-backup-${stamp()}.zip`;
+    } else {
+      onProgress('Encoding images…');
+      const images = await DB.allBlobs();
+      const map = {};
+      for (const img of images) map[img.id] = await Images.blobToDataURL(img.blob);
+      blob = new Blob([JSON.stringify({ ...meta, images: map })], { type: 'application/json' });
+      filename = `gallery-backup-${stamp()}.json`;
+    }
+
+    download(blob, filename);
+    await markSaved(nodes);
+    return { filename, bytes: blob.size, format: useZip ? 'zip' : 'json' };
+  }
+
+  /* ----- import ----- */
+
+  function validate(meta) {
+    if (!meta || meta.format !== FORMAT) {
+      throw new Error("That file isn't a File Gallery backup.");
+    }
+    if (Number(meta.version) > VERSION) {
+      throw new Error('That backup was made by a newer version of this site.');
+    }
+    if (!Array.isArray(meta.nodes)) {
+      throw new Error('That backup is damaged — it has no folder data.');
+    }
+    return meta;
+  }
+
+  /* Reads either format into the same shape: { meta, images: [{id, blob}] }.
+     Everything downstream of here is format-blind. */
+  async function parse(file) {
+    if (await Zip.isZip(file)) {
+      const entries = await Zip.read(file);
+      const dataEntry = entries.find(e => e.name === 'data.json');
+      if (!dataEntry) throw new Error('That zip has no data.json — it may not be a gallery backup.');
+      const meta = validate(JSON.parse(await dataEntry.blob.text()));
+
+      const images = [];
+      for (const e of entries) {
+        if (!e.name.startsWith('images/')) continue;
+        const base = e.name.slice('images/'.length);
+        const dot = base.lastIndexOf('.');
+        const id = dot === -1 ? base : base.slice(0, dot);
+        const ext = dot === -1 ? '' : base.slice(dot + 1);
+        images.push({ id, blob: new Blob([e.blob], { type: Images.mimeForExt(ext) }) });
+      }
+      return { meta, images };
+    }
+
+    let meta;
+    try {
+      meta = validate(JSON.parse(await file.text()));
+    } catch (err) {
+      if (err instanceof SyntaxError) throw new Error("Couldn't read that file — it may be damaged or not a backup.");
+      throw err;
+    }
+
+    const images = [];
+    for (const [id, url] of Object.entries(meta.images || {})) {
+      images.push({ id, blob: await Images.dataURLToBlob(url) });
+    }
+    delete meta.images;
+    return { meta, images };
+  }
+
+  /* Destructive and irreversible, so the caller confirms first — with the
+     backup's own date, not a generic prompt. Thumbnails are regenerated
+     rather than restored: they're derived data, and rebuilding them keeps a
+     restored gallery from showing previews that no longer match. */
+  async function restore(file, onProgress = () => {}) {
+    onProgress('Reading backup…');
+    const { meta, images } = await parse(file);
+
+    onProgress('Rebuilding previews…');
+    for (const img of images) {
+      img.thumb = await Images.makeThumb(img.blob);
+    }
+
+    onProgress('Restoring…');
+    await DB.replaceAll(meta.nodes, images);
+    await markSaved(meta.nodes);
+    return { nodes: meta.nodes.length, images: images.length, savedAt: meta.savedAt };
+  }
+
+  return { exportAll, restore, parse, validate, signature, isDirty, lastBackupAt, markSaved, THRESHOLD, FORMAT, VERSION };
+})();
+</script>
+
+<script>
+/* ==================== dnd.js ====================
+   Drag and drop wiring. Two distinct kinds of drag are handled here:
+
+     internal  moving a folder or image within the gallery
+     external  files dragged in from the desktop
+
+   Tree.canMove is the sole authority on whether an internal drop is legal;
+   this module never re-implements the rules, it only asks. A rejected
+   target simply renders no affordance, so an illegal move is felt as the
+   absence of a drop line rather than reported as an error afterwards. */
+
+const DnD = (() => {
+  let ctx = null;
+  let dragId = null;
+  let marked = [];
+
+  const clearMarks = () => {
+    for (const el of marked) el.classList.remove('drop-into', 'drop-before', 'drop-after');
+    marked = [];
+  };
+
+  const mark = (el, cls) => { el.classList.add(cls); marked.push(el); };
+
+  /* Where a drop would land, given what's being dragged and where the
+     pointer sits over the target. Returns null when the target is illegal.
+
+     Folders sort above items unconditionally, so reordering across the two
+     groups is meaningless — an item over a folder can only mean "put it
+     inside", and a folder over an item means nothing at all. */
+  function intent(nodes, drag, target, rect, x) {
+    if (!drag || !target || drag.id === target.id) return null;
+    const targetIsFolder = target.type === Tree.FOLDER;
+
+    if (drag.type === Tree.ITEM) {
+      if (targetIsFolder) return { kind: 'into', id: target.id };
+      const before = x < rect.left + rect.width / 2;
+      return { kind: before ? 'before' : 'after', id: target.id };
+    }
+
+    // Dragging a folder. The "into" zone takes most of the card so nesting
+    // doesn't take repeated attempts to land; only thin edge strips are
+    // left for reordering past a sibling folder instead.
+    if (!targetIsFolder) return null;
+    const rel = (x - rect.left) / rect.width;
+    if (rel > 0.12 && rel < 0.88) return { kind: 'into', id: target.id };
+    return { kind: rel <= 0.12 ? 'before' : 'after', id: target.id };
+  }
+
+  /* Turns an intent into the (parentId, beforeId) pair moveNode expects,
+     or null when Tree rejects it. */
+  function resolve(nodes, drag, it) {
+    if (!it) return null;
+
+    if (it.kind === 'into') {
+      return Tree.canMove(nodes, drag.id, it.id) ? { parentId: it.id, beforeId: null } : null;
+    }
+
+    const target = Tree.byId(nodes, it.id);
+    if (!target) return null;
+    const parentId = target.parentId;
+    if (!Tree.canMove(nodes, drag.id, parentId)) return null;
+
+    let beforeId = target.id;
+    if (it.kind === 'after') {
+      const group = Tree.siblingGroup(nodes, parentId, drag.type);
+      const idx = group.findIndex(n => n.id === target.id);
+      beforeId = idx === -1 || idx + 1 >= group.length ? null : group[idx + 1].id;
+    }
+    return { parentId, beforeId };
+  }
+
+  /* ----- card wiring ----- */
+
+  function attachCard(el, node) {
+    el.draggable = true;
+
+    el.addEventListener('dragstart', e => {
+      dragId = node.id;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox ignores a drag that sets no data.
+      e.dataTransfer.setData('text/plain', node.id);
+    });
+
+    el.addEventListener('dragend', () => {
+      dragId = null;
+      el.classList.remove('dragging');
+      clearMarks();
+    });
+
+    el.addEventListener('dragover', e => {
+      if (!dragId) return; // external file drag; the pane handles it
+      const nodes = ctx.getNodes();
+      const drag = Tree.byId(nodes, dragId);
+      const it = intent(nodes, drag, node, el.getBoundingClientRect(), e.clientX);
+      const target = resolve(nodes, drag, it);
+      clearMarks();
+      if (!target) return; // illegal: no preventDefault, no affordance, no drop
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      mark(el, it.kind === 'into' ? 'drop-into' : it.kind === 'before' ? 'drop-before' : 'drop-after');
+    });
+
+    el.addEventListener('dragleave', () => clearMarks());
+
+    el.addEventListener('drop', e => {
+      if (!dragId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const nodes = ctx.getNodes();
+      const drag = Tree.byId(nodes, dragId);
+      const it = intent(nodes, drag, node, el.getBoundingClientRect(), e.clientX);
+      const target = resolve(nodes, drag, it);
+      clearMarks();
+      if (target) ctx.move(dragId, target.parentId, target.beforeId);
+      dragId = null;
+    });
+  }
+
+  /* Breadcrumbs accept drops so something buried several levels deep can be
+     lifted out in one motion instead of navigated back up. */
+  function attachCrumb(el, folderId) {
+    el.addEventListener('dragover', e => {
+      if (!dragId) return;
+      if (!Tree.canMove(ctx.getNodes(), dragId, folderId)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clearMarks();
+      mark(el, 'drop-into');
+    });
+    el.addEventListener('dragleave', () => clearMarks());
+    el.addEventListener('drop', e => {
+      if (!dragId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearMarks();
+      if (Tree.canMove(ctx.getNodes(), dragId, folderId)) ctx.move(dragId, folderId, null);
+      dragId = null;
+    });
+  }
+
+  /* ----- external files ----- */
+
+  const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+
+  function initFileDrop() {
+    // Dropping is still accepted anywhere on the page — dragover must call
+    // preventDefault or the browser refuses the drop outright.
+    document.addEventListener('dragover', e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+
+    document.addEventListener('drop', e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+      if (files.length) ctx.addFiles(files);
+    });
+  }
+
+  function init(context) {
+    ctx = context;
+    initFileDrop();
+  }
+
+  return { init, attachCard, attachCrumb, intent, resolve };
+})();
+</script>
+
+<script>
+/* ==================== ui.js ====================
+   Rendering, navigation, modals, and the object-URL lifecycle.
+
+   Every URL handed to an <img> is tracked and revoked when the view that
+   created it is torn down. Skipping that leaks each blob for the lifetime
+   of the tab, which at hundreds of megabytes of images is fatal rather
+   than untidy. */
+
+/* A click event's target is decided by where the mouse button is released,
+   not where it was pressed. Selecting text in a field and dragging past the
+   edge of the modal card before releasing lands the mouseup on the backdrop
+   — a plain 'click' listener there would read that as "click outside" and
+   close the modal mid-selection. Requiring press AND release to both land
+   on the backdrop itself fixes that without losing real outside-clicks. */
+function onBackdropClick(modal, close) {
+  let downOnBackdrop = false;
+  modal.addEventListener('mousedown', e => { downOnBackdrop = e.target === modal; });
+  modal.addEventListener('mouseup', e => {
+    if (downOnBackdrop && e.target === modal) close();
+    downOnBackdrop = false;
+  });
+}
+
+/* Replaces window.confirm/prompt with an async modal that matches the
+   theme. Native confirm/prompt block the main thread synchronously, which
+   can paint a stale frame behind them — a menu already told to hide could
+   still show through. Being a normal async modal avoids that entirely. */
+const Dialog = (() => {
+  const $ = id => document.getElementById(id);
+  let pending = null; // { resolve, withInput }
+
+  function hide() {
+    $('dialog-modal').classList.remove('open');
+  }
+
+  function finish(result) {
+    if (!pending) return;
+    const { resolve } = pending;
+    pending = null;
+    hide();
+    resolve(result);
+  }
+
+  function show({ title, message = '', okLabel = 'OK', cancelLabel = 'Cancel', danger = false, withInput = false, placeholder = '', initialValue = '' }) {
+    return new Promise(resolve => {
+      pending = { resolve, withInput };
+
+      $('dialog-title').textContent = title;
+      const msgEl = $('dialog-msg');
+      msgEl.textContent = message;
+      msgEl.classList.toggle('hidden', !message);
+      $('dialog-err').classList.add('hidden');
+
+      const input = $('dialog-input');
+      input.classList.toggle('hidden', !withInput);
+      input.value = initialValue;
+      input.placeholder = placeholder;
+
+      const ok = $('dialog-ok');
+      ok.textContent = okLabel;
+      ok.classList.toggle('danger-cta', danger);
+      $('dialog-cancel').textContent = cancelLabel;
+
+      $('dialog-modal').classList.add('open');
+      (withInput ? input : ok).focus();
+      if (withInput) input.select();
+    });
+  }
+
+  function submit() {
+    if (!pending) return;
+    if (pending.withInput) {
+      const val = $('dialog-input').value.trim();
+      if (!val) {
+        const err = $('dialog-err');
+        err.textContent = 'Give it a name.';
+        err.classList.remove('hidden');
+        return;
+      }
+      finish(val);
+    } else {
+      finish(true);
+    }
+  }
+
+  function cancel() {
+    if (!pending) return;
+    finish(pending.withInput ? null : false);
+  }
+
+  const confirm = opts => show({ ...opts, withInput: false });
+  const prompt = opts => show({ ...opts, withInput: true });
+
+  function init() {
+    $('dialog-form').addEventListener('submit', e => { e.preventDefault(); submit(); });
+    $('dialog-cancel').addEventListener('click', cancel);
+    onBackdropClick($('dialog-modal'), cancel);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && pending) cancel(); });
+  }
+
+  return { confirm, prompt, init };
+})();
+
+const UI = (() => {
+  const state = {
+    nodes: [],
+    currentId: null,
+    urls: [],       // object URLs owned by the current render
+    editingId: null,
+    noteId: null,
+  };
+
+  const $ = id => document.getElementById(id);
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+    : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+
+  function trackURL(blob) {
+    const url = URL.createObjectURL(blob);
+    state.urls.push(url);
+    return url;
+  }
+
+  function releaseURLs() {
+    for (const u of state.urls) URL.revokeObjectURL(u);
+    state.urls = [];
+  }
+
+  const fmtBytes = n => {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 ** 2) return (n / 1024).toFixed(0) + ' KB';
+    if (n < 1024 ** 3) return (n / 1024 ** 2).toFixed(1) + ' MB';
+    return (n / 1024 ** 3).toFixed(2) + ' GB';
+  };
+
+  /* ----- data ----- */
+
+  async function reload() {
+    state.nodes = await DB.allNodes();
+  }
+
+  async function commit(changed) {
+    if (changed.length) await DB.putNodes(changed);
+    await reload();
+    render();
+  }
+
+  /* ----- rendering ----- */
+
+  function renderCrumbs() {
+    const el = $('crumbs');
+    el.textContent = '';
+
+    const chain = state.currentId ? Tree.pathTo(state.nodes, state.currentId) : [];
+    const items = [{ id: null, title: 'Home' }, ...chain];
+
+    items.forEach((node, i) => {
+      const isLast = i === items.length - 1;
+      const btn = document.createElement('button');
+      btn.className = 'crumb' + (isLast ? ' current' : '');
+      btn.textContent = node.title;
+      if (!isLast) btn.addEventListener('click', () => navigate(node.id));
+      DnD.attachCrumb(btn, node.id);
+      el.appendChild(btn);
+
+      if (!isLast) {
+        const sep = document.createElement('span');
+        sep.className = 'crumb-sep';
+        sep.textContent = '›';
+        el.appendChild(sep);
+      }
+    });
+  }
+
+  function makeCard(node) {
+    const card = document.createElement('div');
+    card.className = 'card ' + node.type;
+    card.dataset.id = node.id;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'thumb-wrap';
+
+    if (node.type === Tree.FOLDER) {
+      const icon = document.createElement('div');
+      icon.className = 'folder-icon';
+      icon.textContent = '📁';
+      wrap.appendChild(icon);
+
+      const n = state.nodes.filter(x => x.parentId === node.id).length;
+      const count = document.createElement('span');
+      count.className = 'folder-count';
+      count.textContent = n === 1 ? '1 item' : n + ' items';
+      wrap.appendChild(count);
+    } else {
+      const img = document.createElement('img');
+      img.alt = node.title || '';
+      img.loading = 'lazy';
+      // <img> is draggable by default, which steals the drag before it
+      // bubbles to the card — that's what made only the title bar
+      // draggable. Turning it off lets the card's own drag handler run
+      // no matter where on the thumbnail the drag starts.
+      img.draggable = false;
+      wrap.appendChild(img);
+      // Thumbnails load per card so a large folder paints immediately.
+      DB.getThumb(node.id).then(rec => {
+        if (rec && rec.blob && card.isConnected) img.src = trackURL(rec.blob);
+      }).catch(() => {});
+    }
+
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'card-menu-btn';
+    menuBtn.textContent = '⋮';
+    menuBtn.setAttribute('aria-label', 'Actions');
+    menuBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      openMenu(e.clientX, e.clientY, node);
+    });
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = node.title || 'Untitled';
+    body.appendChild(title);
+
+    if (node.type === Tree.ITEM && node.url) {
+      const sub = document.createElement('div');
+      sub.className = 'card-sub';
+      try { sub.textContent = new URL(node.url).hostname; }
+      catch (_) { sub.textContent = node.url; }
+      body.appendChild(sub);
+    }
+
+    card.append(wrap, menuBtn, body);
+
+    if (node.type === Tree.ITEM) {
+      const noteBtn = document.createElement('button');
+      noteBtn.className = 'note-btn' + (node.note ? ' has-note' : '');
+      const noteIcon = document.createElement('img');
+      noteIcon.src = 'assets/note-icon.png';
+      noteIcon.alt = '';
+      noteIcon.draggable = false;
+      noteBtn.appendChild(noteIcon);
+      // No native title attribute — that's the OS tooltip box. Hovering a
+      // note that's already written shows the actual text in a themed
+      // preview instead; writing still happens by clicking to open the editor.
+      noteBtn.setAttribute('aria-label', node.note ? 'Edit note' : 'Add note');
+      noteBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        openNote(node);
+      });
+      if (node.note) {
+        noteBtn.addEventListener('mouseenter', () => showNotePreview(noteBtn, node.note));
+        noteBtn.addEventListener('mouseleave', scheduleHideNotePreview);
+      }
+      card.appendChild(noteBtn);
+    }
+
+    card.addEventListener('click', () => activate(node));
+    DnD.attachCard(card, node);
+    return card;
+  }
+
+  /* FLIP: measure where each card sits before the rebuild, then after
+     re-appending, offset it back to its old spot with a transform and
+     release the offset on the next frame — the browser animates the
+     release because .card has a transform transition. A card with no
+     "before" position is new, so it gets a fade-and-rise entrance instead
+     of trying to fly in from nowhere. */
+  function renderGrid() {
+    const grid = $('grid');
+    hideNotePreview(); // the hovered button is about to be replaced
+
+    const before = new Map();
+    for (const el of grid.children) {
+      if (el.dataset.id) before.set(el.dataset.id, el.getBoundingClientRect());
+    }
+
+    grid.textContent = '';
+
+    const children = Tree.childrenOf(state.nodes, state.currentId);
+    const empty = $('empty');
+
+    if (!children.length) {
+      empty.classList.remove('hidden');
+      empty.innerHTML = state.currentId
+        ? 'This folder is empty.<br><small>Add images, or drag them in from your desktop.</small>'
+        : 'Nothing here yet.<br><small>Make a folder, or drag images in from your desktop.</small>';
+      return;
+    }
+
+    empty.classList.add('hidden');
+    for (const node of children) grid.appendChild(makeCard(node));
+
+    const entering = [];
+    const flipping = [];
+    for (const el of grid.children) {
+      const prev = before.get(el.dataset.id);
+      if (!prev) { entering.push(el); continue; }
+      const next = el.getBoundingClientRect();
+      const dx = prev.left - next.left;
+      const dy = prev.top - next.top;
+      if (!dx && !dy) continue;
+      el.style.transition = 'none';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      flipping.push(el);
+    }
+    for (const el of entering) el.classList.add('card-enter');
+
+    // One forced reflow commits the jumped/entering start state before the
+    // release below is scheduled — without it the browser can collapse the
+    // "jump then release" into a single paint and skip the animation.
+    if (flipping.length || entering.length) grid.offsetHeight;
+
+    requestAnimationFrame(() => {
+      for (const el of flipping) { el.style.transition = ''; el.style.transform = ''; }
+      for (const el of entering) el.classList.remove('card-enter');
+    });
+  }
+
+  async function updateStatus() {
+    const last = Backup.lastBackupAt();
+    $('status').textContent = last ? 'Last backup ' + last.toLocaleDateString() : 'No backup yet';
+    const dirty = await Backup.isDirty();
+    $('backup-dot').classList.toggle('hidden', !dirty);
+  }
+
+  function render() {
+    releaseURLs();
+    renderCrumbs();
+    renderGrid();
+    updateStatus();
+  }
+
+  /* ----- navigation ----- */
+
+  function navigate(id) {
+    state.currentId = id;
+    closeMenu();
+    render();
+  }
+
+  function activate(node) {
+    if (node.type === Tree.FOLDER) return navigate(node.id);
+    // No link means clicking does nothing — opening the full-resolution
+    // image was confusing when nothing was ever linked.
+    if (node.url) window.open(node.url, '_blank', 'noopener');
+  }
+
+  /* ----- creating ----- */
+
+  async function newFolder() {
+    const title = await Dialog.prompt({ title: 'New folder', okLabel: 'Create', placeholder: 'Folder name' });
+    if (title === null) return;
+
+    const now = Date.now();
+    const node = {
+      id: uid(), type: Tree.FOLDER, parentId: state.currentId,
+      title, url: '',
+      order: Tree.nextOrder(state.nodes, state.currentId, Tree.FOLDER),
+      createdAt: now, updatedAt: now,
+    };
+    await DB.putNode(node);
+    await reload();
+    render();
+  }
+
+  async function addFiles(files) {
+    const list = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (!list.length) return;
+
+    let order = Tree.nextOrder(state.nodes, state.currentId, Tree.ITEM);
+    for (const file of list) {
+      const id = uid();
+      const now = Date.now();
+      let thumb;
+      try {
+        thumb = await Images.makeThumb(file);
+      } catch (_) {
+        thumb = file;
+      }
+      await DB.putImage(id, file, thumb, { name: file.name });
+      await DB.putNode({
+        id, type: Tree.ITEM, parentId: state.currentId,
+        title: file.name.replace(/\.[^.]+$/, ''), url: '', note: '',
+        order: order++, createdAt: now, updatedAt: now,
+      });
+    }
+    await reload();
+    render();
+  }
+
+  /* ----- moving ----- */
+
+  async function move(dragId, parentId, beforeId) {
+    const res = Tree.moveNode(state.nodes, dragId, parentId, beforeId);
+    if (!res.ok) return;
+    state.nodes = res.nodes;
+    await commit(res.changed);
+  }
+
+  /* ----- menu ----- */
+
+  let menuNode = null;
+
+  function openMenu(x, y, node) {
+    menuNode = node;
+    const menu = $('card-menu');
+    menu.classList.remove('hidden');
+    // Clamp so the menu never opens off-screen near the right or bottom edge.
+    const r = menu.getBoundingClientRect();
+    menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+    menu.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  }
+
+  function closeMenu() {
+    $('card-menu').classList.add('hidden');
+    menuNode = null;
+  }
+
+  async function removeNode(node) {
+    const kids = Tree.descendantsOf(state.nodes, node.id);
+    // Naming the real count matters: with nesting you can be one click from
+    // destroying far more than you're picturing.
+    const title = node.type === Tree.FOLDER && kids.length
+      ? `Delete "${node.title}" and the ${kids.length} item${kids.length === 1 ? '' : 's'} inside it?`
+      : `Delete "${node.title}"?`;
+    const ok = await Dialog.confirm({ title, message: 'This cannot be undone.', okLabel: 'Delete', danger: true });
+    if (!ok) return;
+
+    await DB.deleteNodes([node.id, ...kids]);
+    await reload();
+    render();
+  }
+
+  /* ----- edit modal ----- */
+
+  function openEdit(node) {
+    state.editingId = node.id;
+    $('edit-title').textContent = node.type === Tree.FOLDER ? 'Rename folder' : 'Edit image';
+    $('edit-name').value = node.title || '';
+    $('edit-url').value = node.url || '';
+    $('edit-url').classList.toggle('hidden', node.type === Tree.FOLDER);
+    $('edit-err').classList.add('hidden');
+
+    const preview = $('edit-preview');
+    preview.classList.add('hidden');
+    preview.removeAttribute('src');
+    if (node.type === Tree.ITEM) {
+      DB.getThumb(node.id).then(rec => {
+        if (rec && rec.blob) {
+          preview.src = trackURL(rec.blob);
+          preview.classList.remove('hidden');
+        }
+      }).catch(() => {});
+    }
+
+    $('edit-modal').classList.add('open');
+    $('edit-name').focus();
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    const node = Tree.byId(state.nodes, state.editingId);
+    if (!node) return;
+
+    const title = $('edit-name').value.trim();
+    if (!title) {
+      $('edit-err').textContent = 'Give it a name.';
+      $('edit-err').classList.remove('hidden');
+      return;
+    }
+
+    let url = $('edit-url').value.trim();
+    if (url && node.type === Tree.ITEM) {
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+      try { new URL(url); }
+      catch (_) {
+        $('edit-err').textContent = "That link doesn't look like a web address.";
+        $('edit-err').classList.remove('hidden');
+        return;
+      }
+    }
+
+    await DB.putNode({ ...node, title, url: node.type === Tree.FOLDER ? '' : url, updatedAt: Date.now() });
+    $('edit-modal').classList.remove('open');
+    await reload();
+    render();
+  }
+
+  /* ----- note preview -----
+     Fixed-position like #card-menu, rather than nested inside the card —
+     the card clips overflow, so a tooltip anchored inside it would get cut
+     off for anything longer than a couple of words.
+
+     There's a real gap between the button and the panel below it, so a
+     bare mouseleave-hides-it wiring means the preview vanishes the instant
+     the pointer starts moving toward it — the panel is never reachable.
+     A short grace-period timer bridges that gap: leaving either the button
+     or the panel schedules a hide, but re-entering either one cancels it. */
+
+  let notePreviewHideTimer = null;
+
+  function cancelNotePreviewHide() {
+    if (notePreviewHideTimer) { clearTimeout(notePreviewHideTimer); notePreviewHideTimer = null; }
+  }
+
+  function showNotePreview(btn, text) {
+    cancelNotePreviewHide();
+    const el = $('note-preview');
+    el.textContent = text;
+    el.classList.remove('hidden');
+    const anchor = btn.getBoundingClientRect();
+    const size = el.getBoundingClientRect();
+    const left = Math.max(8, Math.min(anchor.left, innerWidth - size.width - 8));
+    const top = Math.max(8, Math.min(anchor.bottom + 8, innerHeight - size.height - 8));
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+  }
+
+  function hideNotePreview() {
+    cancelNotePreviewHide();
+    $('note-preview').classList.add('hidden');
+  }
+
+  function scheduleHideNotePreview() {
+    cancelNotePreviewHide();
+    notePreviewHideTimer = setTimeout(hideNotePreview, 200);
+  }
+
+  /* ----- note modal -----
+     A dedicated one-click editor for jotting down what a saved site is,
+     separate from the full edit modal — the whole point is to be faster to
+     reach than opening the ⋮ menu. */
+
+  function openNote(node) {
+    state.noteId = node.id;
+    $('note-title').textContent = 'Note — ' + (node.title || 'Untitled');
+    $('note-text').value = node.note || '';
+    $('note-modal').classList.add('open');
+    $('note-text').focus();
+  }
+
+  async function saveNote(e) {
+    e.preventDefault();
+    const node = Tree.byId(state.nodes, state.noteId);
+    if (!node) return;
+    const note = $('note-text').value.trim();
+    await DB.putNode({ ...node, note, updatedAt: Date.now() });
+    $('note-modal').classList.remove('open');
+    await reload();
+    render();
+  }
+
+  /* ----- backup modal ----- */
+
+  function bkMsg(text, kind) {
+    const el = $('bk-msg');
+    el.textContent = text;
+    el.className = 'msg ' + (kind || '');
+    el.classList.toggle('hidden', !text);
+  }
+
+  async function openBackup() {
+    bkMsg('');
+    $('bk-note').textContent = '';
+    const last = Backup.lastBackupAt();
+    const dirty = await Backup.isDirty();
+    $('bk-status').textContent = last
+      ? 'Last backup: ' + last.toLocaleString() + (dirty ? ' — changed since then.' : ' — up to date.')
+      : 'No backup yet.';
+
+    // Tell them which format they'll get before they click, so a sudden .zip
+    // isn't a surprise.
+    try {
+      const bytes = await DB.totalBlobBytes();
+      $('bk-note').textContent = bytes > Backup.THRESHOLD
+        ? `${fmtBytes(bytes)} of images — you'll get a .zip.`
+        : `${fmtBytes(bytes)} of images — you'll get a single .json file.`;
+    } catch (_) {}
+
+    $('backup-modal').classList.add('open');
+  }
+
+  async function doExport() {
+    const btn = $('bk-export');
+    btn.disabled = true;
+    try {
+      const res = await Backup.exportAll(t => bkMsg(t, ''));
+      bkMsg(`Saved ${res.filename} (${fmtBytes(res.bytes)}). Keep it somewhere safe.`, 'ok');
+      updateStatus();
+    } catch (err) {
+      bkMsg(err.message || 'Export failed.', 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function doRestore(file) {
+    if (!file) return;
+    try {
+      // Parse before confirming, so the prompt can name the backup's real
+      // date and a bad file is rejected without ever threatening the data.
+      bkMsg('Reading backup…', '');
+      const { meta } = await Backup.parse(file);
+      const when = new Date(meta.savedAt).toLocaleString();
+      const count = meta.nodes.length;
+      const ok = await Dialog.confirm({
+        title: `Restore the backup from ${when}?`,
+        message: `It holds ${count} item${count === 1 ? '' : 's'}. Everything currently in this browser will be replaced.`,
+        okLabel: 'Restore',
+        danger: true,
+      });
+      if (!ok) { bkMsg(''); return; }
+
+      const res = await Backup.restore(file, t => bkMsg(t, ''));
+      state.currentId = null;
+      await reload();
+      render();
+      bkMsg(`Restored ${res.nodes} item${res.nodes === 1 ? '' : 's'} and ${res.images} image${res.images === 1 ? '' : 's'}.`, 'ok');
+    } catch (err) {
+      bkMsg(err.message || 'Restore failed.', 'err');
+    } finally {
+      $('bk-file').value = '';
+    }
+  }
+
+  /* ----- wiring ----- */
+
+  function init() {
+    Dialog.init();
+    DnD.init({
+      getNodes: () => state.nodes,
+      move,
+      addFiles,
+    });
+
+    // Moving from the button onto the panel crosses a real gap — these
+    // keep it open through that gap the same way the button's own
+    // mouseenter does, rather than just tearing it down.
+    $('note-preview').addEventListener('mouseenter', cancelNotePreviewHide);
+    $('note-preview').addEventListener('mouseleave', scheduleHideNotePreview);
+
+    $('new-folder-btn').addEventListener('click', newFolder);
+    $('add-images-btn').addEventListener('click', () => $('file-input').click());
+    $('file-input').addEventListener('change', e => {
+      addFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    $('backup-btn').addEventListener('click', openBackup);
+    $('bk-export').addEventListener('click', doExport);
+    $('bk-file').addEventListener('change', e => doRestore(e.target.files[0]));
+
+    $('edit-form').addEventListener('submit', saveEdit);
+    $('note-form').addEventListener('submit', saveNote);
+
+    $('card-menu').addEventListener('click', e => {
+      const act = e.target.dataset.act;
+      if (!act || !menuNode) return;
+      const node = menuNode;
+      closeMenu();
+      if (act === 'open') activate(node);
+      if (act === 'edit') openEdit(node);
+      if (act === 'delete') removeNode(node);
+    });
+
+    document.addEventListener('click', e => {
+      if (!$('card-menu').contains(e.target)) closeMenu();
+    });
+
+    // #dialog-modal is excluded from all three: it resolves a pending
+    // promise on close (see Dialog.init below), so it needs Dialog.cancel()
+    // rather than having its 'open' class blindly stripped.
+    for (const el of document.querySelectorAll('[data-close]')) {
+      el.addEventListener('click', () => el.closest('.modal').classList.remove('open'));
+    }
+    for (const modal of document.querySelectorAll('.modal:not(#dialog-modal)')) {
+      onBackdropClick(modal, () => modal.classList.remove('open'));
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      closeMenu();
+      for (const m of document.querySelectorAll('.modal.open:not(#dialog-modal)')) m.classList.remove('open');
+    });
+
+    /* No dragover handler on the grid itself. An earlier version called
+       preventDefault there to catch background drops, but dragover bubbles
+       up from the cards — so it also accepted drags the card had already
+       refused, showing a drop cursor over illegal targets like a folder
+       held over an image. External file drags are covered by the
+       document-level handlers in dnd.js, so this needs nothing. */
+
+    reload().then(render).catch(err => {
+      $('empty').classList.remove('hidden');
+      $('empty').textContent = 'Could not open storage: ' + err.message;
+    });
+  }
+
+  return { init, state, render, reload };
+})();
+
+document.addEventListener('DOMContentLoaded', UI.init);
+</script>
 </body>
 </html>

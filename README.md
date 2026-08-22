@@ -49,10 +49,23 @@ Restoring replaces everything currently in the browser. There is no undo on
 delete — the backup file is the safety net. A dot appears on the Backup
 button when something has changed since your last saved file.
 
+## Code layout
+
+`index.html` is self-contained — every style and script is inlined, so the
+whole app is readable and shareable as one file, the same way
+[CryptoFolio](https://github.com/sonkame/crypto-portfolio) is.
+
+The `js/*.js` files and `styles.css` alongside it are the same source split
+back out into modules. They exist only so `tests.html` can import the pure
+logic (`tree.js`, `zip.js`, `images.js`, `backup.js`) in isolation — they
+aren't loaded by `index.html` and don't need to be kept publicly in sync
+beyond that. If you change the app, edit `index.html`; mirror the change into
+the matching `js/*.js` file only if it affects something `tests.html` covers.
+
 ## Tests
 
-Open `tests.html`. It runs in the browser against the same `js/` files, with
-no framework and no build. It deliberately does not load `js/db.js`, so
+Open `tests.html`. It runs in the browser against the split-out `js/` files,
+with no framework and no build. It deliberately does not load `js/db.js`, so
 running it cannot touch a real gallery.
 
 Tick **Include slow tests** to also build a 66,000-entry archive, which
